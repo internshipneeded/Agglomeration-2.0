@@ -1,57 +1,58 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:uuid/uuid.dart'; // Optional: Add 'uuid' to pubspec.yaml if you want unique batch IDs
 
 class ScanService {
-  // 1. Replace with YOUR Cloud Name
-  final String cloudName = "petperplexity";
+  // Your Backend URL
+  static const String baseUrl = 'https://pet-perplexity.onrender.com/api';
 
-  // 2. Replace with YOUR Unsigned Upload Preset Name
-  final String uploadPreset = "scan_image_upload";
+  final _storage = const FlutterSecureStorage();
+  final _uuid = const Uuid(); // Optional
 
-  /// Uploads a list of images directly to Cloudinary and returns the URLs
-  Future<List<String>> uploadToCloudinary(List<File> images) async {
-    List<String> uploadedUrls = [];
-    final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+  Future<List<Map<String, dynamic>>> uploadBatchToBackend(List<File> images) async {
+    final uri = Uri.parse('$baseUrl/scan');
+    String? token = await _storage.read(key: 'jwt_token');
 
-    try {
-      for (var image in images) {
-        // Create Multipart Request
-        final request = http.MultipartRequest('POST', url);
-
-        // Add the Upload Preset (Required for direct upload)
-        request.fields['upload_preset'] = uploadPreset;
-
-        // Add the File
-        final file = await http.MultipartFile.fromPath('file', image.path);
-        request.files.add(file);
-
-        // Send Request
-        final response = await request.send();
-        final responseData = await http.Response.fromStream(response);
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(responseData.body);
-          final String secureUrl = data['secure_url'];
-          print("Uploaded: $secureUrl");
-          uploadedUrls.add(secureUrl);
-        } else {
-          print("Cloudinary Error: ${responseData.body}");
-        }
-      }
-
-      return uploadedUrls;
-
-    } catch (e) {
-      print("Upload Error: $e");
+    if (token == null) {
+      print("Error: No JWT Token found.");
       return [];
     }
-  }
 
-  /// Placeholder: Send these URLs to your Node.js backend later
-  Future<void> sendUrlsToBackend(List<String> urls) async {
-    // We will implement this part when you build the backend logic
-    // to create the Scan model and trigger the ML classification.
-    print("Ready to send to backend: $urls");
+    List<Map<String, dynamic>> scanResults = [];
+    String currentBatchId = _uuid.v4(); // Generate a unique ID for this batch
+
+    for (var image in images) {
+      try {
+        var request = http.MultipartRequest('POST', uri);
+
+        request.headers['Authorization'] = 'Bearer $token';
+
+        // 1. Add the Image (Matches upload.single('image'))
+        var pic = await http.MultipartFile.fromPath('image', image.path);
+        request.files.add(pic);
+
+        // 2. Add Batch ID (Matches req.body.batchId)
+        request.fields['batchId'] = currentBatchId;
+
+        print("Uploading ${image.path.split('/').last}...");
+
+        var streamedResponse = await request.send();
+        var response = await http.Response.fromStream(streamedResponse);
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final Map<String, dynamic> data = jsonDecode(response.body);
+          scanResults.add(data);
+          print("✅ Success! ID: ${data['_id']}");
+        } else {
+          print("❌ Upload Failed [${response.statusCode}]: ${response.body}");
+        }
+      } catch (e) {
+        print("❌ Service Error: $e");
+      }
+    }
+
+    return scanResults;
   }
 }

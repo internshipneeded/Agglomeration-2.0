@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pet_perplexity/features/stats/screens/stats_screen.dart';
 import '../history/screens/history_screen.dart';
 import '../home/screens/home_screen.dart';
 
@@ -19,9 +20,8 @@ class _MainLayoutState extends State<MainLayout> {
   // List of screens to switch between
   final List<Widget> _screens = [
     const HomeScreen(),      // Index 0
-    const Center(child: Text("Stats (Coming Soon)")), // Index 1
+    const StatsScreen(), // Index 1
     const HistoryScreen(),   // Index 2
-    const Center(child: Text("Settings (Coming Soon)")), // Index 3
   ];
 
   void _onItemTapped(int index) {
@@ -68,11 +68,6 @@ class _MainLayoutState extends State<MainLayout> {
                 icon: Icon(Icons.history_outlined),
                 selectedIcon: Icon(Icons.history),
                 label: 'History'
-            ),
-            NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings),
-                label: 'Settings'
             ),
           ],
         ),

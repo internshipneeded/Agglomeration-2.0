@@ -21,17 +21,30 @@ class Scan {
 
   factory Scan.fromJson(Map<String, dynamic> json) {
     return Scan(
-      id: json['_id'] ?? '',
+      id: json['_id']?.toString() ?? '',
       imageUrl: json['imageUrl'] ?? '',
-      timestamp: DateTime.parse(json['timestamp']),
+      // Handle MongoDB date strings safely
+      timestamp: json['timestamp'] != null
+          ? DateTime.tryParse(json['timestamp'].toString()) ?? DateTime.now()
+          : DateTime.now(),
       batchId: json['batchId'] ?? 'Unknown Batch',
-      totalBottles: json['totalBottles'] ?? 0,
-      totalValue: (json['totalValue'] ?? 0).toDouble(),
-      detections:
-          (json['detections'] as List<dynamic>?)
-              ?.map((x) => Detection.fromJson(x))
-              .toList() ??
+      totalBottles: (json['totalBottles'] as num?)?.toInt() ?? 0,
+      totalValue: (json['totalValue'] as num?)?.toDouble() ?? 0.0,
+      detections: (json['detections'] as List<dynamic>?)
+          ?.map((x) => Detection.fromJson(x as Map<String, dynamic>))
+          .toList() ??
           [],
     );
+  }
+
+  // Helper: Converts this single scan to the list format ResultScreen expects
+  List<Map<String, dynamic>> toResultList() {
+    return [{
+      '_id': id,
+      'imageUrl': imageUrl,
+      'totalBottles': totalBottles,
+      'totalValue': totalValue,
+      'detections': detections.map((d) => d.toJson()).toList(),
+    }];
   }
 }

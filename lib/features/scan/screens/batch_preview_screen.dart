@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../services/scan_service.dart'; // Import your ScanService
+import '../../../results/screens/result_screen.dart';
+import '../../../services/scan_service.dart'; // Import updated service
 
 class BatchPreviewScreen extends StatefulWidget {
   final List<File> initialImages;
@@ -16,21 +17,19 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
   late List<File> _images;
   final ImagePicker _picker = ImagePicker();
 
-  // 1. Initialize the Service
+  // Initialize Service
   final ScanService _scanService = ScanService();
 
   bool _isUploading = false;
-
-  // Your Theme Color
   final Color _sageGreen = const Color(0xFF5E8C61);
 
   @override
   void initState() {
     super.initState();
-    _images = List.from(widget.initialImages); // Create a mutable copy
+    _images = List.from(widget.initialImages);
   }
 
-  // Add more images to the current batch
+  // Add more images (Kept same as before)
   Future<void> _addMoreImages() async {
     showModalBottomSheet(
       context: context,
@@ -39,7 +38,7 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
         child: Wrap(
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt, color: Colors.black87),
+              leading: const Icon(Icons.camera_alt),
               title: const Text('Add from Camera'),
               onTap: () async {
                 Navigator.pop(context);
@@ -48,7 +47,7 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library, color: Colors.black87),
+              leading: const Icon(Icons.photo_library),
               title: const Text('Add from Gallery'),
               onTap: () async {
                 Navigator.pop(context);
@@ -64,44 +63,40 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
     );
   }
 
-  // 2. The "Done" action - Now connects to Cloudinary
+  // Updated: Send images to Node.js Backend
   void _processBatch() async {
     if (_images.isEmpty) return;
 
     setState(() => _isUploading = true);
 
-    // Call Cloudinary Service
-    List<String> uploadedUrls = await _scanService.uploadToCloudinary(_images);
+    // Call the Service
+    List<Map<String, dynamic>> results = await _scanService.uploadBatchToBackend(_images);
 
-    setState(() => _isUploading = false);
+    if (mounted) {
+      setState(() => _isUploading = false);
 
-    if (uploadedUrls.isNotEmpty && mounted) {
-      // Success
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Uploaded ${uploadedUrls.length} images successfully!")),
-      );
-
-      // Debug: Print URLs to console (Use these for your ML backend later)
-      print("Batch Uploaded to Cloudinary: $uploadedUrls");
-
-      // Navigate back to Home
-      Navigator.pop(context); // Pop Preview
-      Navigator.pop(context); // Pop Camera Screen
-    } else if (mounted) {
-      // Failure
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Upload Failed. Check internet connection."),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (results.isNotEmpty) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ResultScreen(results: results),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Some uploads failed. Check console."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A), // Dark grey background
+      backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
@@ -126,7 +121,7 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
                 ? const Center(child: Text("No images selected", style: TextStyle(color: Colors.white54)))
                 : PageView.builder(
               itemCount: _images.length,
-              controller: PageController(viewportFraction: 0.85), // Shows peek of next image
+              controller: PageController(viewportFraction: 0.85),
               itemBuilder: (context, index) {
                 return _buildImageCard(index);
               },
@@ -147,7 +142,7 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
                 child: ElevatedButton(
                   onPressed: _isUploading || _images.isEmpty ? null : _processBatch,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _sageGreen, // Using your brand color
+                    backgroundColor: _sageGreen,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),
                     ),
@@ -176,7 +171,6 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // The Image Container
         Expanded(
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 20),
@@ -194,18 +188,13 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
                 ),
               ],
             ),
-            // Delete Overlay Button
             child: Stack(
               children: [
                 Positioned(
                   top: 15,
                   right: 15,
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _images.removeAt(index);
-                      });
-                    },
+                    onTap: () => setState(() => _images.removeAt(index)),
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: const BoxDecoration(
@@ -220,12 +209,8 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
             ),
           ),
         ),
-
-        // Page Indicator
-        Text(
-          "Page ${index + 1} of ${_images.length}",
-          style: const TextStyle(color: Colors.white54, fontSize: 14),
-        ),
+        Text("Page ${index + 1} of ${_images.length}",
+            style: const TextStyle(color: Colors.white54, fontSize: 14)),
         const SizedBox(height: 10),
       ],
     );
