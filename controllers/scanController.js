@@ -17,7 +17,7 @@ const analyzeWithPetModel = async (imageFile) => {
       image: imageFile, 
     });
 
-    // console.log("✅ Pet Classifier Response:", result.data);
+    console.log("✅ Pet Classifier Response:", result.data);
 
     const textOutput = result.data?.[1]; 
     if (!textOutput || typeof textOutput !== 'string') return [];
@@ -113,7 +113,7 @@ const analyzeWithSAM3 = async (imageFile) => {
 };
 
 // =========================================================
-// 4. HW YOLO (Arnavtr1/hw_yolo)
+// 4. HW YOLO (Hardware Verification)
 // =========================================================
 const analyzeWithHWYolo = async (imageFile) => {
   try {
@@ -131,23 +131,33 @@ const analyzeWithHWYolo = async (imageFile) => {
         dist_val: 3,
     });
 
-    // Attempt to parse JSON output if string, or use as is
-    let parsedData = result.data;
-    try {
-        if (typeof result.data === 'string') parsedData = JSON.parse(result.data);
-    } catch(e) {}
+    console.log("✅ HW YOLO Response:", result.data);
+
+    let yoloData = null;
+    if (Array.isArray(result.data) && result.data.length > 0) {
+        yoloData = result.data[0];
+    } else {
+        yoloData = result.data;
+    }
+
+    if (typeof yoloData === 'string') {
+        try { yoloData = JSON.parse(yoloData); } catch (e) { }
+    }
+
+    if (!yoloData) return [];
 
     return [{
         source: "HW_Yolo",
-        label: "bottle_yolo",
+        label: "bottle_measurement",
         brand: "Unknown",
         material: "PET",
-        confidence: 0.9,
+        confidence: yoloData.score || 0.9, 
         color: "Unknown",
         boundingBox: [],
         meta: { 
-            raw_output: parsedData,
-            model_params: { aruco: true, crushed: false }
+            height_cm: yoloData.height_cm,
+            diameter_cm: yoloData.diameter_cm,
+            method: yoloData.method
         }
     }];
 
@@ -171,21 +181,23 @@ const analyzeWithBottleSize = async (imageFile) => {
 
     console.log("✅ Bottle Size Response:", result.data);
 
-    // Parse the output. Gradio classification often returns a Label object 
-    // or a string inside the data array.
     const rawData = result.data;
     let sizeLabel = "Unknown Size";
-    let conf = 0.85; // Default confidence
+    let conf = 0.85;
 
-    // Attempt to find a label string in the response
+    // Gradio Label outputs can vary. 
+    // Usually it's [{label: "500ml", conf: 0.9}, ...] or just a label object.
+    // We try to parse the most likely string.
     if (Array.isArray(rawData) && rawData.length > 0) {
-        if (rawData[0]?.label) sizeLabel = rawData[0].label; // standard Label format
-        else if (typeof rawData[0] === 'string') sizeLabel = rawData[0]; // simple string format
+        if (rawData[0]?.label) sizeLabel = rawData[0].label;
+        else if (typeof rawData[0] === 'string') sizeLabel = rawData[0];
+    } else if (rawData?.label) {
+        sizeLabel = rawData.label;
     }
 
     return [{
         source: "ImmortalTree_Size",
-        label: "bottle",
+        label: "bottle_size",
         brand: "Unknown",
         material: "PET",
         confidence: conf,
@@ -218,16 +230,15 @@ exports.uploadScan = async (req, res) => {
     if (!response.ok) throw new Error("Failed to download image");
     const arrayBuffer = await response.arrayBuffer();
     
-    // Create File object for Gradio Clients
     const imageFile = new File([arrayBuffer], "scan.jpg", { type: "image/jpeg" });
 
     // 2. Run ALL 5 Models in Parallel
     const [petResults, aggloResults, sam3Results, yoloResults, sizeResults] = await Promise.all([
-        analyzeWithPetModel(imageFile),   // 1. Pet Classifier
-        analyzeWithAgglo(imageFile),      // 2. Brand Detection
+        analyzeWithPetModel(imageFile),   // 1. Material
+        analyzeWithAgglo(imageFile),      // 2. Brand
         analyzeWithSAM3(imageFile),       // 3. Segmentation
-        analyzeWithHWYolo(imageFile),     // 4. Hardware YOLO
-        analyzeWithBottleSize(imageFile)  // 5. Size Detection (NEW)
+        analyzeWithHWYolo(imageFile),     // 4. Hardware Dimensions
+        analyzeWithBottleSize(imageFile)  // 5. Size Classification (NEW)
     ]);
 
     // 3. Merge Results
@@ -239,34 +250,30 @@ exports.uploadScan = async (req, res) => {
         ...sizeResults
     ];
 
-    // 4. Calculate Stats (Max count from detection models)
+    // 4. Calculate Stats
     const bottleCount = Math.max(
         sam3Results.length, 
         petResults.length, 
         aggloResults.length,
-        yoloResults.length,
-        sizeResults.length
+        yoloResults.length
     );
     
     // 5. Value Calculation
     let estimatedValue = 0;
     
-    // If we have detailed PET info, use it for base price
     if (petResults.length > 0) {
         petResults.forEach(b => {
             if (b.material === 'PET') {
                 estimatedValue += (b.color === 'Clear' ? 6.0 : 4.0);
             } else {
-                estimatedValue += 0.5; // Scrap
+                estimatedValue += 0.5; 
             }
         });
         
-        // Add generic value for extra bottles detected by other models
         if (bottleCount > petResults.length) {
              estimatedValue += (bottleCount - petResults.length) * 5.0;
         }
     } else {
-        // Fallback: 5.0 per bottle detected
         estimatedValue = bottleCount * 5.0; 
     }
 
