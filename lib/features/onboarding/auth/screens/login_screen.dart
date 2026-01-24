@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:pet_perplexity/features/util/main_layout.dart';
-import '../../../../services/auth_service.dart'; // Import the AuthService
-import '../../../home/screens/home_screen.dart';
+import '../../../../services/auth_service.dart'; // Adjust path
+import '../../../util/main_layout.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -15,12 +14,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // Initialize the Service
+  // 1. Initialize Service
   final AuthService _authService = AuthService();
 
   bool _isLoading = false;
 
-  // Keeping your existing UI colors
   final Color _bgGreen = const Color(0xFF537A68);
   final Color _accentColor = const Color(0xFFD67D76);
   final Color _textColor = const Color(0xFF2C3E36);
@@ -28,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() => _isLoading = true);
 
-    // Call the service instead of writing HTTP code here
+    // 2. Call Service
     bool success = await _authService.login(
       _emailController.text.trim(),
       _passwordController.text,
@@ -36,23 +34,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = false);
 
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Welcome back!")),
-      );
-
-      // Navigate to Home
-      Navigator.pushReplacement(
+    if (success) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Welcome back!")),
+        );
+        // Navigate to MainLayout (Home wrapper)
+        Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MainLayout())
-      );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Login failed. Check your credentials."),
-          backgroundColor: Colors.red,
-        ),
-      );
+          MaterialPageRoute(builder: (_) => const MainLayout()),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Login failed. Check your credentials."),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -155,7 +156,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const RegisterScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const RegisterScreen(),
+                    ),
                   );
                 },
                 child: const Text(

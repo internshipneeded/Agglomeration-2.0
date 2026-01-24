@@ -1,6 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import '../../../../services/auth_service.dart'; // Adjust path to your auth_service.dart
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -12,59 +11,53 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController(); // Added confirm password
+  final _confirmPasswordController = TextEditingController();
+
+  // 1. Initialize Service
+  final AuthService _authService = AuthService();
+
   bool _isLoading = false;
 
-  // Same Theme Colors
+  // Theme Colors
   final Color _bgGreen = const Color(0xFF537A68);
   final Color _accentColor = const Color(0xFFD67D76);
   final Color _textColor = const Color(0xFF2C3E36);
 
   Future<void> _register() async {
+    // Basic Validation
     if (_passwordController.text != _confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Passwords do not match")),
+        const SnackBar(content: Text("Passwords do not match"), backgroundColor: Colors.red),
       );
       return;
     }
 
     setState(() => _isLoading = true);
-    final url = Uri.parse('https://pet-perplexity.onrender.com/api/auth/register');
 
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': _emailController.text.trim(),
-          'password': _passwordController.text,
-        }),
-      );
+    // 2. Call Service
+    bool success = await _authService.register(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
 
-      final data = jsonDecode(response.body);
+    setState(() => _isLoading = false);
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Account created! Please login.")),
-          );
-          Navigator.pop(context); // Go back to login
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['message'] ?? "Registration failed")),
-          );
-        }
-      }
-    } catch (e) {
+    if (success) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e")),
+          const SnackBar(content: Text("Account created! Please login.")),
+        );
+        Navigator.pop(context); // Go back to Login Screen
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Registration failed. Email might already be in use."),
+            backgroundColor: Colors.red,
+          ),
         );
       }
-    } finally {
-      setState(() => _isLoading = false);
     }
   }
 
@@ -175,7 +168,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  // Helper widget reused from login screen (you can move this to a shared file)
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,

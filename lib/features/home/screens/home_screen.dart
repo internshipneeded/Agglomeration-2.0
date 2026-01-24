@@ -1,4 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../../services/auth_service.dart'; // Adjust path to your AuthService
+import '../../profile_setting/profile_screen.dart'; // Adjust path to ProfileScreen
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,13 +18,73 @@ class _HomeScreenState extends State<HomeScreen> {
   final Color _accentColor = const Color(0xFFD67D76);
   final Color _textColor = const Color(0xFF2C3E36);
 
+  // 1. Services & State
+  final AuthService _authService = AuthService();
+  final ImagePicker _picker = ImagePicker();
+
+  String _userName = "Recycler"; // Default name
+  String? _profilePicUrl;        // Cloudinary URL
+  bool _isLoadingUser = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserData();
+  }
+
+  // 2. Fetch User Data Logic
+  Future<void> _fetchUserData() async {
+    final userData = await _authService.getUserProfile();
+
+    if (mounted) {
+      setState(() {
+        if (userData != null) {
+          // Check if name is not null/empty
+          _userName = (userData['name'] != null && userData['name'].isNotEmpty)
+              ? userData['name']
+              : "Recycler";
+          _profilePicUrl = userData['profilePic'];
+        }
+        _isLoadingUser = false;
+      });
+    }
+  }
+
+  // 3. Navigation with Refresh
+  // We use 'await' so code pauses here until the user comes back from Profile
+  Future<void> _navigateToProfile() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProfileScreen()),
+    );
+    // Refresh data immediately upon return
+    _fetchUserData();
+  }
+
+  // 4. Camera Logic
+  Future<void> _openCamera() async {
+    try {
+      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+
+      if (photo != null) {
+        // TODO: Send image to processing API
+        print("Image Path: ${photo.path}");
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Image captured! Processing...")),
+          );
+        }
+      }
+    } catch (e) {
+      print("Error picking image: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // We keep the Scaffold here so you can have the specific AppBar for Home
     return Scaffold(
       backgroundColor: Colors.white,
-
-      // 1. Top App Bar Area
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -29,8 +93,18 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                "Hello, Aditya",
+              // 5. Dynamic Name with Skeleton Loader
+              _isLoadingUser
+                  ? Container(
+                width: 120,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              )
+                  : Text(
+                "Hello, $_userName",
                 style: TextStyle(
                   color: _textColor,
                   fontWeight: FontWeight.bold,
@@ -52,9 +126,20 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
-            child: CircleAvatar(
-              backgroundColor: _lightGreenCard,
-              child: Icon(Icons.person, color: _bgGreen),
+            // 6. Avatar Tap Handler
+            child: GestureDetector(
+              onTap: _navigateToProfile,
+              child: CircleAvatar(
+                backgroundColor: _lightGreenCard,
+                // Display Cloudinary Image if available
+                backgroundImage: (_profilePicUrl != null && _profilePicUrl!.isNotEmpty)
+                    ? NetworkImage(_profilePicUrl!)
+                    : null,
+                // Fallback to Icon if no image
+                child: (_profilePicUrl == null || _profilePicUrl!.isEmpty)
+                    ? Icon(Icons.person, color: _bgGreen)
+                    : null,
+              ),
             ),
           ),
         ],
@@ -65,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 2. Hero Section
+            // Hero Section
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(24),
@@ -97,10 +182,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
+
+                        // Camera Button
                         ElevatedButton(
-                          onPressed: () {
-                            // TODO: Open Camera logic
-                          },
+                          onPressed: _openCamera,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _accentColor,
                             foregroundColor: Colors.white,
@@ -130,7 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 30),
 
-            // 3. Recent Batches
+            // Recent Batches
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -170,7 +255,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 30),
 
-            // 4. Quick Stats
+            // Quick Stats
             Text(
               "Overview",
               style: TextStyle(
@@ -211,11 +296,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      // NO bottomNavigationBar here anymore!
     );
   }
 
-  // Helpers remain the same
+  // Helpers
   Widget _buildBatchTile({
     required String time,
     required String title,
