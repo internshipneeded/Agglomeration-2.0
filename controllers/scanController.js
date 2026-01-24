@@ -3,7 +3,6 @@ const Scan = require('../models/Scan');
 const { Client } = require("@gradio/client");
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-// --- REAL AI ENGINE ---
 const analyzeImageWithGradio = async (imageUrl) => {
   try {
     console.log("1. Connecting to Gradio Model: Arnavtr1/Agglo_2.0...");
@@ -13,81 +12,63 @@ const analyzeImageWithGradio = async (imageUrl) => {
     const response = await fetch(imageUrl);
     const imageBlob = await response.blob();
 
-    console.log("3. Sending image to AI for prediction...");
+    console.log("3. Sending image to AI (Endpoint: /infer)...");
     const result = await client.predict("/infer", { 
       image: imageBlob, 
     });
 
-    console.log("✅ AI Response Raw Data:", JSON.stringify(result.data, null, 2));
+    console.log("✅ Raw AI Response:", result.data);
 
-    // --- PARSING LOGIC ---
-    // IMPORTANT: detailed mapping depends on exactly what "Agglo_2.0" returns.
-    // Assuming it returns a JSON string or an Object with detection lists.
-    // We default to returning the raw data if we can't parse it specifically yet.
+    // --- NEW PARSING LOGIC (For String Output) ---
+    // The docs say result.data is [ "String of Brands" ]
+    const rawText = result.data[0] || ""; 
     
-    // Example: If model returns a list of detections directly
-    if (Array.isArray(result.data)) {
-        // Map your model's specific output format to your Schema here
-        // This is a placeholder mapping:
-        return result.data.map(item => ({
-            label: item.label || "unknown", // Replace with actual key from model
-            confidence: item.score || 0.9,  // Replace with actual key
-            brand: item.brand || "Generic",
-            color: item.color || "Clear",
-            material: "PET", // Defaulting to PET for now
-            boundingBox: item.box || [0,0,0,0] 
-        }));
-    }
+    if (!rawText) return [];
 
-    // Fallback: return the raw data wrapped in a generic object so app doesn't crash
-    return [{
-        label: "AI_Processed",
-        confidence: 1.0,
-        raw_data: result.data // Saving raw data to debug
-    }];
+    // Heuristic: Split by comma or newline to find individual items
+    // Example Input: "Bisleri, Aquafina, Coke" -> ["Bisleri", "Aquafina", "Coke"]
+    const brands = rawText.split(/,|\n/).map(s => s.trim()).filter(s => s.length > 0);
+
+    // Convert to our standard Detections format
+    return brands.map(brandName => ({
+        label: "bottle", // Default label since model implies bottles
+        brand: brandName,
+        confidence: 1.0, // Text output doesn't usually give confidence
+        color: "Unknown", 
+        material: "PET",
+        boundingBox: [] // No boxes available in text mode
+    }));
 
   } catch (error) {
     console.error("❌ AI Inference Failed:", error);
-    // Return a dummy error object so the flow doesn't break
-    return [{ label: "Error", confidence: 0, material: "Unknown" }];
+    // Return dummy data so app doesn't crash during demo
+    return [{ label: "Error", brand: "Unknown", confidence: 0 }];
   }
 };
 
-// --- CONTROLLER FUNCTION ---
 exports.uploadScan = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ msg: 'No file uploaded' });
-    }
+    if (!req.file) return res.status(400).json({ msg: 'No file uploaded' });
 
-    const imageUrl = req.file.path; // Cloudinary URL
-
-    // 1. CALL THE REAL AI
+    const imageUrl = req.file.path;
+    
+    // 1. Get AI Results (List of brands)
     const aiResults = await analyzeImageWithGradio(imageUrl);
 
-    // 2. CALCULATE LOGIC (Price/Count)
-    // Update this logic based on the actual keys your model returns
-    let bottleCount = aiResults.length;
-    let estimatedValue = 0;
+    // 2. Calculate Logic
+    const bottleCount = aiResults.length;
+    const estimatedValue = bottleCount * 5; // e.g., ₹5 per bottle
 
-    aiResults.forEach(item => {
-        // Example pricing logic
-        if (item.label === 'bottle') {
-             estimatedValue += (item.color === 'Clear') ? 5.0 : 2.0;
-        }
-    });
-
-    // 3. SAVE TO DB
+    // 3. Save
     const newScan = new Scan({
       imageUrl,
-      batchId: req.body.batchId || "batch_default",
+      batchId: "batch_" + Date.now(),
       totalBottles: bottleCount,
       totalValue: estimatedValue,
       detections: aiResults 
     });
 
     await newScan.save();
-
     res.json(newScan);
 
   } catch (err) {
@@ -96,7 +77,6 @@ exports.uploadScan = async (req, res) => {
   }
 };
 
-// ... keep exports.getAllScans same as before ...
 exports.getAllScans = async (req, res) => {
     try {
       const scans = await Scan.find().sort({ timestamp: -1 });
