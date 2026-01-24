@@ -1,10 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // 1. Import Storage
-import 'package:http/http.dart' as http;
 import 'package:pet_perplexity/features/util/main_layout.dart';
-
+import '../../../../services/auth_service.dart'; // Import the AuthService
+import '../../../home/screens/home_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -18,66 +15,44 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // 2. Initialize Secure Storage
-  final _storage = const FlutterSecureStorage();
+  // Initialize the Service
+  final AuthService _authService = AuthService();
 
   bool _isLoading = false;
 
+  // Keeping your existing UI colors
   final Color _bgGreen = const Color(0xFF537A68);
   final Color _accentColor = const Color(0xFFD67D76);
   final Color _textColor = const Color(0xFF2C3E36);
 
   Future<void> _login() async {
     setState(() => _isLoading = true);
-    final url = Uri.parse('https://pet-perplexity.onrender.com/api/auth/login');
 
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': _emailController.text.trim(),
-          'password': _passwordController.text,
-        }),
+    // Call the service instead of writing HTTP code here
+    bool success = await _authService.login(
+      _emailController.text.trim(),
+      _passwordController.text,
+    );
+
+    setState(() => _isLoading = false);
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Welcome back!")),
       );
 
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        final token = data['token'];
-        print("Login Success! Token: $token");
-
-        // 3. Save the token securely
-        await _storage.write(key: 'jwt_token', value: token);
-
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text("Welcome back!")));
-
-          // Navigate to Home
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const MainLayout()),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['message'] ?? "Login failed")),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
+      // Navigate to Home
+      Navigator.pushReplacement(
           context,
-        ).showSnackBar(SnackBar(content: Text("Error: $e")));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+          MaterialPageRoute(builder: (_) => const MainLayout())
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Login failed. Check your credentials."),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -155,20 +130,20 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       child: _isLoading
                           ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              ),
-                            )
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
                           : const Text(
-                              "Login",
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                        "Login",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -180,9 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (context) => const RegisterScreen(),
-                    ),
+                    MaterialPageRoute(builder: (context) => const RegisterScreen()),
                   );
                 },
                 child: const Text(
