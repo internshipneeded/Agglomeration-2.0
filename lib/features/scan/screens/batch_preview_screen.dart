@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../services/scan_service.dart'; // Import your ScanService
 
 class BatchPreviewScreen extends StatefulWidget {
   final List<File> initialImages;
@@ -14,6 +15,9 @@ class BatchPreviewScreen extends StatefulWidget {
 class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
   late List<File> _images;
   final ImagePicker _picker = ImagePicker();
+
+  // 1. Initialize the Service
+  final ScanService _scanService = ScanService();
 
   bool _isUploading = false;
 
@@ -60,28 +64,37 @@ class _BatchPreviewScreenState extends State<BatchPreviewScreen> {
     );
   }
 
-  // The "Done" action
+  // 2. The "Done" action - Now connects to Cloudinary
   void _processBatch() async {
     if (_images.isEmpty) return;
 
     setState(() => _isUploading = true);
 
-    // --- BACKEND LOGIC WILL GO HERE ---
-    // 1. Upload _images to Node.js
-    // 2. Node.js sends to Cloudinary + ML Model
-    // 3. Receive Scan Result
+    // Call Cloudinary Service
+    List<String> uploadedUrls = await _scanService.uploadToCloudinary(_images);
 
-    // Simulating delay for now
-    await Future.delayed(const Duration(seconds: 2));
+    setState(() => _isUploading = false);
 
-    if (mounted) {
-      setState(() => _isUploading = false);
+    if (uploadedUrls.isNotEmpty && mounted) {
+      // Success
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Images sent for processing!")),
+        SnackBar(content: Text("Uploaded ${uploadedUrls.length} images successfully!")),
       );
-      // Navigate back to Home or to a Results Screen
-      Navigator.pop(context);
-      Navigator.pop(context); // Pop twice to go back to Home
+
+      // Debug: Print URLs to console (Use these for your ML backend later)
+      print("Batch Uploaded to Cloudinary: $uploadedUrls");
+
+      // Navigate back to Home
+      Navigator.pop(context); // Pop Preview
+      Navigator.pop(context); // Pop Camera Screen
+    } else if (mounted) {
+      // Failure
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Upload Failed. Check internet connection."),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
