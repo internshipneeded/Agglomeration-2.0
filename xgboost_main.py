@@ -6,13 +6,20 @@ import cv2
 import numpy as np
 import torch
 import xgboost as xgb
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List, Optional
 from PIL import Image
 from cnn_model import CNNModel
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-app = Flask(__name__)
+app = FastAPI(
+    title="PET Bottle Classifier API",
+    description="Detect and classify bottles as PET or Non-PET using YOLO, CNN, and XGBoost",
+    version="1.0.0"
+)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
@@ -21,6 +28,39 @@ print(f"Using device: {device}")
 yolo_model = None
 cnn_model = None
 xgb_model = None
+
+
+# Pydantic models for responses
+class BoundingBox(BaseModel):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+class BottleDetection(BaseModel):
+    bottle_id: int
+    bbox: BoundingBox
+    confidence: float
+    classification: str
+    pet_probability: Optional[float] = None
+    transparency_probability: float
+
+
+class HealthResponse(BaseModel):
+    status: str
+    models_loaded: dict
+
+
+class PredictionResponse(BaseModel):
+    success: bool
+    message: str
+    bottles: List[BottleDetection]
+
+
+class ErrorResponse(BaseModel):
+    success: bool
+    error: str
 
 
 def initialize_models(cnn_model_path='models/cnn_model.pth', xgb_model_path='models/xgb_model.json'):
@@ -41,7 +81,34 @@ def initialize_models(cnn_model_path='models/cnn_model.pth', xgb_model_path='mod
         print(f"CNN model loaded from {cnn_model_path}")
     else:
         print(f"Warning: CNN model not found at {cnn_model_path}. Transparency feature will be zeros.")
-    predict_transparency(cnn_model, bottle_image_rgb):
+        cnn_model = None
+    
+    # Load XGBoost model
+    if os.path.exists(xgb_model_path):
+        xgb_model = xgb.XGBClassifier()
+        xgb_model.load_model(xgb_model_path)
+        print(f"XGBoost model loaded from {xgb_model_path}")
+    else:
+        print(f"Warning: XGBoost model not found at {xgb_model_path}.")
+        xgb_model = None
+    
+    print("All models initialized successfully!")
+
+
+def detect_bottles(img_bgr):
+    """Detect bottles in image using YOLO.
+    
+    Args:
+        img_bgr: Image in BGR format (numpy array)
+    
+    Returns:
+        detections: Array of detections [x1, y1, x2, y2, conf, cls]
+    """
+    results = yolo_model(img_bgr)
+    return results.xyxy[0].cpu().numpy()
+
+
+def predict_transparency(cnn_model, bottle_image_rgb):
     """Return transparency probability from CNN; if model missing, return 0.0.
     Expects bottle_image_rgb as HxWx3 RGB numpy array sized 32x32.
     """
@@ -51,138 +118,46 @@ def initialize_models(cnn_model_path='models/cnn_model.pth', xgb_model_path='mod
         tensor = torch.from_numpy(bottle_image_rgb).permute(2, 0, 1).float() / 255.0
         tensor = tensor.unsqueeze(0).to(device)
         prob = cnn_model(tensor).item()
-        return float(prob)rain_idx, val_idx = idx[:split], idx[split:]
-    return X[train_idx], X[val_idx], y[train_idx], y[val_idx]
+        return float(prob)
 
 
-def evaluate(preds_prob, labels):
-    preds = (preds_prob > 0.5).astype(np.int64)
-    total = len(labels)
-    correct = (preds == labels).sum()
-    tp = ((preds == 1) & (labels == 1)).sum()
-    fp = ((preds == 1) & (labels == 0)).sum()
-    tn = ((preds == 0) & (labels == 0)).sum()
-    fn = ((preds == 0) & (labels == 1)).sum()
-    eps = 1e-8
-    accuracy = correct / total
-    precision = tp / (tp + fp + eps)
-    recall = tp / (tp + fn + eps)
-    f1 = 2 * precision * recall / (precision + recall + eps)
-    return {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1': f1,
-        'tp': int(tp),
-        'fp': int(fp),
-        'tn': int(tn),
-        'fn': int(fn),
-        'total': int(total),
-    }
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Train and evaluate XGBoost on YOLO-extracted bottle crops")
-    parser.add_argument('--images_dir', default='./drinking-waste-DatasetNinja/ds/img/', help='Directory with .jpg images')
-    parser.add_argument('--model_out', default='models/xgb_model.json', help='Where to save the XGBoost model')
-    parser.add_argument('--val_ratio', type=float, default=0.2, help='Validation split ratio')
-    parser.add_argument('--max_depth', type=int, default=5)
-    parser.add_argument('--n_estimators', type=int, default=300)
-    parser.add_argument('--learning_rate', type=float, default=0.05)
-    parser.add_argument('--cnn_model_path', default='models/cnn_model.pth', help='Path to trained CNN model for transparency feature')
-    args = parser.parse_args()
-
-    # Load CNN model for transparency probability feature
-    global cnn_model
-    cnn_model = CNNModel().to(device)
-    if os.path.exists(args.cnn_model_path):
-        cnn_model.load_state_dict(torch.load(args.cnn_model_path, map_location=device))
-        cnn_model.eval()
-        print(f"Loaded CNN model from {args.cnn_model_path} (device: {device})")
-    else:
-        print(f"Warning: CNN model not found at {args.cnn_model_path}. Transparency feature will be zeros.")
-        cnn_model = None
-
-    X, y = build_dataset(args.images_dir)
-    X_train, X_val, y_train, y_val = train_val_split(X, y, val_ratio=args.val_ratio)
-    
-    if X_train is None or len(y_train) == 0:
-        print("No samples available for training.")
-        return
-
-    model = xgb.XGBClassifier(
-        max_depth=args.max_depth,
-        n_estimators=args.n_estimators,
-        learning_rate=args.learning_rate,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        objective='binary:logistic',
-        eval_metric='logloss',
-        tree_method='hist',
-    )
-
-    print("Training XGBoost...")
-    model.fit(X_train, y_train)
-
-    print("Evaluating...")
-    preds_prob = model.predict_proba(X_val)[:, 1]
-    metrics = evaluate(preds_prob, y_val)
-
-    os.makedirs(os.path.dirname(args.model_out), exist_ok=True)
-    model.save_model(args.model_out)
-
-    print("\nResults")
-    print("-------")
-    print(f"Accuracy:  {metrics['accuracy']*100:.2f}%")
-    print(f"Precision: {metrics['precision']*100:.2f}%")
-    print(f"Recall:    {metrics['recall']*100:.2f}%")
-    print(f"F1 Score:  {metrics['f1']*100:.2f}%")
-@app.route('/health', methods=['GET'])
-def health_check():
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
     """Health check endpoint."""
-    return jsonify({
-        'status': 'healthy',
-        'models_loaded': {
+    return HealthResponse(
+        status="healthy",
+        models_loaded={
             'yolo': yolo_model is not None,
             'cnn': cnn_model is not None,
             'xgboost': xgb_model is not None
         }
-    })
+    )
 
 
-@app.route('/predict', methods=['POST'])
-def predict():
+@app.post("/predict", response_model=PredictionResponse)
+async def predict(image: UploadFile = File(...)):
     """
     Predict if bottles in uploaded image are PET or Non-PET.
     
-    # Initialize models on startup
-    initialize_models(
-        cnn_model_path=os.getenv('CNN_MODEL_PATH', 'models/cnn_model.pth'),
-        xgb_model_path=os.getenv('XGB_MODEL_PATH', 'models/xgb_model.json')
-    )
+    Args:
+        image: Image file (multipart/form-data)
     
-    # Run Flask app
-    port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=Falsets:
-        - 'image' file in multipart/form-data
-        
     Returns:
-        JSON with detection results
+        PredictionResponse with detection results
     """
-    if 'image' not in request.files:
-        return jsonify({'error': 'No image file provided'}), 400
-    
-    file = request.files['image']
-    if file.filename == '':
-        return jsonify({'error': 'Empty filename'}), 400
+    if yolo_model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="YOLO model not loaded"
+        )
     
     try:
         # Read image
-        image_bytes = file.read()
-        image = Image.open(BytesIO(image_bytes))
-        image_np = np.array(image)
+        image_bytes = await image.read()
+        image_pil = Image.open(BytesIO(image_bytes))
+        image_np = np.array(image_pil)
         
-        # Convert RGB to BGR for OpenCV and YOLO
+        # Convert to BGR for OpenCV and YOLO
         if len(image_np.shape) == 2:  # Grayscale
             img_bgr = cv2.cvtColor(image_np, cv2.COLOR_GRAY2BGR)
         elif image_np.shape[2] == 4:  # RGBA
@@ -194,11 +169,11 @@ def predict():
         detections = detect_bottles(img_bgr)
         
         if len(detections) == 0:
-            return jsonify({
-                'success': True,
-                'message': 'No bottles detected in the image',
-                'bottles': []
-            })
+            return PredictionResponse(
+                success=True,
+                message="No bottles detected in the image",
+                bottles=[]
+            )
         
         # Process each detection
         results = []
@@ -228,41 +203,47 @@ def predict():
                 pet_prob = xgb_model.predict_proba(features)[0, 1]
                 is_pet = pet_prob > 0.5
                 
-                results.append({
-                    'bottle_id': idx + 1,
-                    'bbox': {
-                        'x1': x1,
-                        'y1': y1,
-                        'x2': x2,
-                        'y2': y2
-                    },
-                    'confidence': float(conf),
-                    'classification': 'PET' if is_pet else 'Non-PET',
-                    'pet_probability': float(pet_prob),
-                    'transparency_probability': float(transparency_prob)
-                })
+                results.append(BottleDetection(
+                    bottle_id=idx + 1,
+                    bbox=BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2),
+                    confidence=float(conf),
+                    classification='PET' if is_pet else 'Non-PET',
+                    pet_probability=float(pet_prob),
+                    transparency_probability=float(transparency_prob)
+                ))
             else:
-                results.append({
-                    'bottle_id': idx + 1,
-                    'bbox': {
-                        'x1': x1,
-                        'y1': y1,
-                        'x2': x2,
-                        'y2': y2
-                    },
-                    'confidence': float(conf),
-                    'transparency_probability': float(transparency_prob),
-                    'classification': 'unavailable'
-                })
+                results.append(BottleDetection(
+                    bottle_id=idx + 1,
+                    bbox=BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2),
+                    confidence=float(conf),
+                    classification='unavailable',
+                    transparency_probability=float(transparency_prob)
+                ))
         
-        return jsonify({
-            'success': True,
-            'message': f'Detected {len(results)} bottle(s)',
-            'bottles': results
-        })
+        return PredictionResponse(
+            success=True,
+            message=f"Detected {len(results)} bottle(s)",
+            bottles=results
+        )
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing image: {str(e)}"
+        )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize models on startup."""
+    initialize_models(
+        cnn_model_path=os.getenv('CNN_MODEL_PATH', 'models/cnn_model.pth'),
+        xgb_model_path=os.getenv('XGB_MODEL_PATH', 'models/xgb_model.json')
+    )
+
+
+if __name__ == '__main__':
+    import uvicorn
+    
+    port = int(os.getenv('PORT', 8000))
+    uvicorn.run(app, host='0.0.0.0', port=port)
