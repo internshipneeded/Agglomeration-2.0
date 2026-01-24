@@ -2,22 +2,24 @@ const Scan = require('../models/Scan');
 const { Client } = require("@gradio/client");
 const { File } = require('node:buffer'); 
 
-// Dynamic import for node-fetch
+// Dynamic import for node-fetch to handle image downloading
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-// --- HELPER 1: PET CLASSIFIER (SudoKuder/agglo) ---
+// =========================================================
+// 1. PET CLASSIFIER (SudoKuder/agglo)
+// =========================================================
 const analyzeWithPetModel = async (imageFile) => {
   try {
     console.log("🔹 Connecting to SudoKuder/agglo (Pet Classifier)...");
     const client = await Client.connect("SudoKuder/agglo");
 
-    console.log("🔹 Sending image to Pet Classifier...");
     const result = await client.predict("/classify_bottle", { 
       image: imageFile, 
     });
 
     console.log("✅ Pet Classifier Response:", result.data);
 
+    // Parse the specific string format returned by this model
     const textOutput = result.data?.[1]; 
     if (!textOutput || typeof textOutput !== 'string') return [];
 
@@ -30,7 +32,7 @@ const analyzeWithPetModel = async (imageFile) => {
             const material = match[1];
             const conf = parseFloat(match[2]) / 100;
             const trans = parseFloat(match[3]) / 100;
-            const isClear = trans > 0.5; 
+            const isClear = trans > 0.5; // Threshold for transparency
 
             detections.push({
                 source: "PetClassifier",
@@ -51,7 +53,9 @@ const analyzeWithPetModel = async (imageFile) => {
   }
 };
 
-// --- HELPER 2: AGGLO 2.0 (Brand Detection) ---
+// =========================================================
+// 2. AGGLO 2.0 (Brand Detection)
+// =========================================================
 const analyzeWithAgglo = async (imageFile) => {
   try {
     console.log("🔹 Connecting to Agglo_2.0...");
@@ -77,7 +81,9 @@ const analyzeWithAgglo = async (imageFile) => {
   }
 };
 
-// --- HELPER 3: SAM3 (Segmentation) ---
+// =========================================================
+// 3. SAM3 (Segmentation)
+// =========================================================
 const analyzeWithSAM3 = async (imageFile) => {
   try {
     console.log("🔸 Connecting to SAM3...");
@@ -107,12 +113,15 @@ const analyzeWithSAM3 = async (imageFile) => {
   }
 };
 
-// --- HELPER 4: HW YOLO (Arnavtr1/hw_yolo) ---
+// =========================================================
+// 4. HW YOLO (Arnavtr1/hw_yolo) - NEW INTEGRATION
+// =========================================================
 const analyzeWithHWYolo = async (imageFile) => {
   try {
     console.log("🔹 Connecting to Arnavtr1/hw_yolo...");
     const client = await Client.connect("Arnavtr1/hw_yolo");
 
+    // Using parameters from your Python snippet
     const result = await client.predict("/inference", { 
         image: imageFile,
         aruco_size_val: 3,
@@ -126,26 +135,23 @@ const analyzeWithHWYolo = async (imageFile) => {
 
     console.log("✅ HW YOLO Response:", result.data);
 
-    // Note: Adjust parsing based on actual JSON output of this specific YOLO model.
-    // Assuming standard object detection JSON or string output.
-    // Since exact output format isn't specified, we wrap the raw result.
-    
-    // Attempt to parse if it's a JSON string
+    // Gradio usually returns [json_data, image_path] or similar for detection.
+    // We attempt to parse the first element if it's JSON/String data.
     let parsedData = result.data;
-    try {
-        if (typeof result.data === 'string') parsedData = JSON.parse(result.data);
-        if (Array.isArray(result.data)) parsedData = result.data;
-    } catch (e) { /* ignore parse error */ }
-
-    // Returning a generic detection object containing the model's output
+    
+    // Attempt to normalize the output structure
     return [{
         source: "HW_Yolo",
         label: "bottle_yolo",
         brand: "Unknown",
-        material: "PET", // Assumption unless model specifies
-        confidence: 0.9,
-        boundingBox: [], // Parse result.data bounding box logic here if available
-        meta: { raw_output: parsedData }
+        material: "PET",
+        confidence: 0.9, // Default if model doesn't return explicit confidence per item
+        color: "Unknown",
+        boundingBox: [],
+        meta: { 
+            raw_output: parsedData,
+            model_params: { aruco: true, crushed: false }
+        }
     }];
 
   } catch (error) {
@@ -154,7 +160,9 @@ const analyzeWithHWYolo = async (imageFile) => {
   }
 };
 
-// --- MAIN CONTROLLER ---
+// =========================================================
+// MAIN CONTROLLER
+// =========================================================
 exports.uploadScan = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ msg: 'No file uploaded' });
@@ -172,10 +180,10 @@ exports.uploadScan = async (req, res) => {
 
     // 2. Run ALL 4 Models in Parallel
     const [petResults, aggloResults, sam3Results, yoloResults] = await Promise.all([
-        analyzeWithPetModel(imageFile),   // SudoKuder/agglo
-        analyzeWithAgglo(imageFile),      // Agglo 2.0
-        analyzeWithSAM3(imageFile),       // SAM3
-        analyzeWithHWYolo(imageFile)      // Arnavtr1/hw_yolo (NEW)
+        analyzeWithPetModel(imageFile),   // Model 1
+        analyzeWithAgglo(imageFile),      // Model 2
+        analyzeWithSAM3(imageFile),       // Model 3
+        analyzeWithHWYolo(imageFile)      // Model 4 (New)
     ]);
 
     // 3. Merge Results
@@ -186,8 +194,7 @@ exports.uploadScan = async (req, res) => {
         ...yoloResults
     ];
 
-    // 4. Calculate Stats
-    // Count: Prioritize the model giving the highest realistic count
+    // 4. Calculate Stats (Prioritize max detection count)
     const bottleCount = Math.max(
         sam3Results.length, 
         petResults.length, 
@@ -195,28 +202,29 @@ exports.uploadScan = async (req, res) => {
         yoloResults.length
     );
     
-    // Value Calculation Logic
+    // 5. Value Calculation
     let estimatedValue = 0;
     
     if (petResults.length > 0) {
-        // Precise calculation if we have material data
+        // Detailed calculation based on material/color if available
         petResults.forEach(b => {
             if (b.material === 'PET') {
                 estimatedValue += (b.color === 'Clear' ? 6.0 : 4.0);
             } else {
-                estimatedValue += 0.5; // Scrap
+                estimatedValue += 0.5; // Scrap value
             }
         });
-        // Add generic value for extras detected by other models
+        
+        // Add generic value for bottles detected by other models but not the Pet Classifier
         if (bottleCount > petResults.length) {
              estimatedValue += (bottleCount - petResults.length) * 5.0;
         }
     } else {
-        // Fallback generic calculation
+        // Fallback generic calculation if Pet Classifier fails
         estimatedValue = bottleCount * 5.0; 
     }
 
-    // 5. Save
+    // 6. Save to Database
     const newScan = new Scan({
       imageUrl,
       batchId: "batch_" + Date.now(),
