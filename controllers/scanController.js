@@ -1,5 +1,6 @@
 const Scan = require('../models/Scan');
 const { Client } = require("@gradio/client");
+// valid for Node 18+ to create File objects from buffers
 const { File } = require('node:buffer'); 
 
 // Dynamic import for node-fetch
@@ -10,14 +11,8 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 // =========================================================
 const analyzeWithPetModel = async (imageFile) => {
   try {
-    console.log("🔹 Connecting to SudoKuder/agglo (Pet Classifier)...");
     const client = await Client.connect("SudoKuder/agglo");
-
-    const result = await client.predict("/classify_bottle", { 
-      image: imageFile, 
-    });
-
-    console.log("✅ Pet Classifier Response:", result.data);
+    const result = await client.predict("/classify_bottle", { image: imageFile });
 
     const textOutput = result.data?.[1]; 
     if (!textOutput || typeof textOutput !== 'string') return [];
@@ -26,6 +21,7 @@ const analyzeWithPetModel = async (imageFile) => {
     const lines = textOutput.split('\n');
 
     lines.forEach(line => {
+        // Parse: "Bottle 1: PET (confidence: 98.50%, transparency: 5.00%)"
         const match = line.match(/Bottle \d+: (PET|Non-PET) \(confidence: ([\d.]+)%, transparency: ([\d.]+)%\)/);
         if (match) {
             const material = match[1];
@@ -47,7 +43,7 @@ const analyzeWithPetModel = async (imageFile) => {
     });
     return detections;
   } catch (error) {
-    console.error("❌ Pet Classifier Failed:", error.message);
+    console.error("❌ Pet Classifier Skipped:", error.message);
     return [];
   }
 };
@@ -57,7 +53,6 @@ const analyzeWithPetModel = async (imageFile) => {
 // =========================================================
 const analyzeWithAgglo = async (imageFile) => {
   try {
-    console.log("🔹 Connecting to Agglo_2.0...");
     const client = await Client.connect("Arnavtr1/Agglo_2.0");
     const result = await client.predict("/infer", { image: imageFile });
     
@@ -75,7 +70,7 @@ const analyzeWithAgglo = async (imageFile) => {
         boundingBox: [] 
       }));
   } catch (error) {
-    console.error("❌ Agglo Failed:", error.message);
+    console.error("❌ Agglo Skipped:", error.message);
     return [];
   }
 };
@@ -85,7 +80,6 @@ const analyzeWithAgglo = async (imageFile) => {
 // =========================================================
 const analyzeWithSAM3 = async (imageFile) => {
   try {
-    console.log("🔸 Connecting to SAM3...");
     const client = await Client.connect("akhaliq/sam3");
     const result = await client.predict("/segment", { 
         image: imageFile, 
@@ -107,19 +101,24 @@ const analyzeWithSAM3 = async (imageFile) => {
         maskUrl: item.image?.url || item.image 
     }));
   } catch (error) {
-    console.error("❌ SAM3 Failed:", error.message);
+    if (error.message.includes("quota")) {
+        console.warn("⚠️ SAM3 Quota Exceeded (Skipping)");
+    } else {
+        console.error("❌ SAM3 Skipped:", error.message);
+    }
     return [];
   }
 };
 
 // =========================================================
-// 4. HW YOLO (Hardware Verification)
+// 4. HW YOLO (Arnavtr1/hw_yolo)
 // =========================================================
 const analyzeWithHWYolo = async (imageFile) => {
   try {
-    console.log("🔹 Connecting to Arnavtr1/hw_yolo...");
+    console.log("🔹 Connecting to HW YOLO...");
     const client = await Client.connect("Arnavtr1/hw_yolo");
 
+    // Using the exact parameters from your working snippet
     const result = await client.predict("/inference", { 
         image: imageFile,
         aruco_size_val: 3,
@@ -131,63 +130,63 @@ const analyzeWithHWYolo = async (imageFile) => {
         dist_val: 3,
     });
 
-    console.log("✅ HW YOLO Response:", result.data);
+    console.log("✅ HW YOLO Raw Result:", JSON.stringify(result.data).substring(0, 100) + "...");
 
-    let yoloData = null;
+    // ROBUST PARSING:
+    // result.data is typically an array. Index 0 usually holds the detections.
+    let rawOutput = result.data;
     if (Array.isArray(result.data) && result.data.length > 0) {
-        yoloData = result.data[0];
-    } else {
-        yoloData = result.data;
+        rawOutput = result.data[0];
     }
 
-    if (typeof yoloData === 'string') {
-        try { yoloData = JSON.parse(yoloData); } catch (e) { }
+    // Check if it returned null (error state)
+    if (!rawOutput) {
+        // Check for error object in second index (as seen in your logs)
+        if (result.data?.[1]?.error) {
+            console.error("❌ HW YOLO Remote Error:", result.data[1].error);
+        }
+        return [];
     }
 
-    if (!yoloData) return [];
+    // If string, parse it. If object, use it.
+    let parsedData = rawOutput;
+    try {
+        if (typeof rawOutput === 'string') {
+            parsedData = JSON.parse(rawOutput);
+        }
+    } catch(e) {
+        console.warn("⚠️ HW YOLO returned non-JSON string:", rawOutput);
+    }
 
     return [{
         source: "HW_Yolo",
-        label: "bottle_measurement",
+        label: "bottle_yolo",
         brand: "Unknown",
         material: "PET",
-        confidence: yoloData.score || 0.9, 
+        confidence: 0.9,
         color: "Unknown",
         boundingBox: [],
-        meta: { 
-            height_cm: yoloData.height_cm,
-            diameter_cm: yoloData.diameter_cm,
-            method: yoloData.method
-        }
+        meta: { raw_output: parsedData }
     }];
 
   } catch (error) {
-    console.error("❌ HW YOLO Failed:", error.message);
+    console.error("❌ HW YOLO Skipped:", error.message);
     return [];
   }
 };
 
 // =========================================================
-// 5. BOTTLE SIZE MODEL (immortal-tree/plastic_bottle_size) - NEW
+// 5. BOTTLE SIZE MODEL (immortal-tree/plastic_bottle_size)
 // =========================================================
 const analyzeWithBottleSize = async (imageFile) => {
   try {
-    console.log("🔹 Connecting to immortal-tree/plastic_bottle_size...");
     const client = await Client.connect("immortal-tree/plastic_bottle_size");
-    
-    const result = await client.predict("/predict", { 
-      image: imageFile, 
-    });
-
-    console.log("✅ Bottle Size Response:", result.data);
+    const result = await client.predict("/predict", { image: imageFile });
 
     const rawData = result.data;
-    let sizeLabel = "Unknown Size";
-    let conf = 0.85;
+    let sizeLabel = "Unknown";
 
-    // Gradio Label outputs can vary. 
-    // Usually it's [{label: "500ml", conf: 0.9}, ...] or just a label object.
-    // We try to parse the most likely string.
+    // Handle different Gradio label formats
     if (Array.isArray(rawData) && rawData.length > 0) {
         if (rawData[0]?.label) sizeLabel = rawData[0].label;
         else if (typeof rawData[0] === 'string') sizeLabel = rawData[0];
@@ -196,21 +195,18 @@ const analyzeWithBottleSize = async (imageFile) => {
     }
 
     return [{
-        source: "ImmortalTree_Size",
-        label: "bottle_size",
+        source: "SizeClassifier",
+        label: "bottle",
         brand: "Unknown",
         material: "PET",
-        confidence: conf,
+        confidence: 0.85,
         color: "Unknown",
         boundingBox: [], 
-        meta: {
-            detected_size: sizeLabel,
-            raw_output: rawData
-        }
+        meta: { detected_size: sizeLabel }
     }];
 
   } catch (error) {
-    console.error("❌ Bottle Size Model Failed:", error.message);
+    console.error("❌ Size Model Skipped:", error.message);
     return [];
   }
 };
@@ -223,74 +219,76 @@ exports.uploadScan = async (req, res) => {
     if (!req.file) return res.status(400).json({ msg: 'No file uploaded' });
 
     const imageUrl = req.file.path;
-    console.log("📸 Processing:", imageUrl);
+    console.log("📸 Processing Scan:", imageUrl);
 
-    // 1. Download Image Once
+    // 1. Download Image (Create File object for Gradio)
     const response = await fetch(imageUrl);
     if (!response.ok) throw new Error("Failed to download image");
     const arrayBuffer = await response.arrayBuffer();
-    
     const imageFile = new File([arrayBuffer], "scan.jpg", { type: "image/jpeg" });
 
-    // 2. Run ALL 5 Models in Parallel
-    const [petResults, aggloResults, sam3Results, yoloResults, sizeResults] = await Promise.all([
-        analyzeWithPetModel(imageFile),   // 1. Material
-        analyzeWithAgglo(imageFile),      // 2. Brand
-        analyzeWithSAM3(imageFile),       // 3. Segmentation
-        analyzeWithHWYolo(imageFile),     // 4. Hardware Dimensions
-        analyzeWithBottleSize(imageFile)  // 5. Size Classification (NEW)
+    // 2. Parallel Execution (Wait for all models)
+    // We use Promise.all to run them concurrently for speed
+    const [petRes, aggloRes, samRes, yoloRes, sizeRes] = await Promise.all([
+        analyzeWithPetModel(imageFile),
+        analyzeWithAgglo(imageFile),
+        analyzeWithSAM3(imageFile),
+        analyzeWithHWYolo(imageFile),
+        analyzeWithBottleSize(imageFile)
     ]);
 
-    // 3. Merge Results
+    // 3. Merge Valid Detections
     const finalDetections = [
-        ...petResults, 
-        ...aggloResults, 
-        ...sam3Results, 
-        ...yoloResults,
-        ...sizeResults
+        ...petRes, 
+        ...aggloRes, 
+        ...samRes, 
+        ...yoloRes,
+        ...sizeRes
     ];
 
     // 4. Calculate Stats
+    // Logic: Take the highest bottle count reported by any model
     const bottleCount = Math.max(
-        sam3Results.length, 
-        petResults.length, 
-        aggloResults.length,
-        yoloResults.length
+        samRes.length, 
+        petRes.length, 
+        aggloRes.length, 
+        yoloRes.length, 
+        sizeRes.length
     );
-    
+
+    // Ensure at least 1 bottle if we have detections but counts matched oddly
+    const finalCount = (bottleCount === 0 && finalDetections.length > 0) ? 1 : bottleCount;
+
     // 5. Value Calculation
     let estimatedValue = 0;
-    
-    if (petResults.length > 0) {
-        petResults.forEach(b => {
-            if (b.material === 'PET') {
-                estimatedValue += (b.color === 'Clear' ? 6.0 : 4.0);
-            } else {
-                estimatedValue += 0.5; 
-            }
+    if (petRes.length > 0) {
+        petRes.forEach(b => {
+            if (b.material === 'PET') estimatedValue += (b.color === 'Clear' ? 6.0 : 4.0);
+            else estimatedValue += 0.5;
         });
-        
-        if (bottleCount > petResults.length) {
-             estimatedValue += (bottleCount - petResults.length) * 5.0;
+        // Adjust for discrepancies
+        if (finalCount > petRes.length) {
+             estimatedValue += (finalCount - petRes.length) * 5.0;
         }
     } else {
-        estimatedValue = bottleCount * 5.0; 
+        estimatedValue = finalCount * 5.0; 
     }
 
-    // 6. Save
+    // 6. Save DB Entry
     const newScan = new Scan({
       imageUrl,
       batchId: "batch_" + Date.now(),
-      totalBottles: bottleCount,
+      totalBottles: finalCount,
       totalValue: estimatedValue,
       detections: finalDetections 
     });
 
     await newScan.save();
+    console.log(`✅ Scan Complete: ${finalCount} bottles detected. Total Value: ₹${estimatedValue}`);
     res.json(newScan);
 
   } catch (err) {
-    console.error("Server Error:", err.message);
+    console.error("🔥 Server Error:", err.message);
     res.status(500).send('Server Error');
   }
 };
