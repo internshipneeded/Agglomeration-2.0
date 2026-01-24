@@ -6,7 +6,7 @@ import '../onboarding/auth/screens/login_screen.dart';
 
 // Define Colors locally or import from your app_colors.dart if you have it
 class AppColors {
-  static const Color primaryGreen = Color(0xFF5E8C61); // Sage Green
+  static const Color primaryGreen = Color(0xFF537A68); // Sage Green
   static const Color accentBrown = Color(0xFFD67D76);  // Terra Cotta
   static const Color lightBg = Color(0xFFF4F7F5);      // Light Background
   static const Color darkText = Color(0xFF2C3E2D);     // Dark Green Text
