@@ -1,6 +1,7 @@
 import os
 import warnings
 from io import BytesIO
+from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
@@ -14,12 +15,6 @@ from PIL import Image
 from cnn_model import CNNModel
 
 warnings.filterwarnings('ignore', category=FutureWarning)
-
-app = FastAPI(
-    title="PET Bottle Classifier API",
-    description="Detect and classify bottles as PET or Non-PET using YOLO, CNN, and XGBoost",
-    version="1.0.0"
-)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
@@ -68,10 +63,14 @@ def initialize_models(cnn_model_path='models/cnn_model.pth', xgb_model_path='mod
     global yolo_model, cnn_model, xgb_model
     
     # Load YOLO model
-    print("Loading YOLO model...")
-    yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5s').to(device)
-    yolo_model.eval()
-    print(f"YOLO model loaded (device: {device})")
+    try:
+        print("Loading YOLO model...")
+        yolo_model = torch.hub.load('ultralytics/yolov5', 'yolov5s', trust_repo=True).to(device)
+        yolo_model.eval()
+        print(f"YOLO model loaded (device: {device})")
+    except Exception as e:
+        print(f"Error loading YOLO model: {e}")
+        yolo_model = None
     
     # Load CNN model
     if os.path.exists(cnn_model_path):
@@ -119,6 +118,27 @@ def predict_transparency(cnn_model, bottle_image_rgb):
         tensor = tensor.unsqueeze(0).to(device)
         prob = cnn_model(tensor).item()
         return float(prob)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    initialize_models(
+        cnn_model_path=os.getenv('CNN_MODEL_PATH', 'models/cnn_model.pth'),
+        xgb_model_path=os.getenv('XGB_MODEL_PATH', 'models/xgb_model.json')
+    )
+    yield
+    # Shutdown
+    print("Shutting down...")
+
+
+app = FastAPI(
+    title="PET Bottle Classifier API",
+    description="Detect and classify bottles as PET or Non-PET using YOLO, CNN, and XGBoost",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -231,15 +251,6 @@ async def predict(image: UploadFile = File(...)):
             status_code=500,
             detail=f"Error processing image: {str(e)}"
         )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize models on startup."""
-    initialize_models(
-        cnn_model_path=os.getenv('CNN_MODEL_PATH', 'models/cnn_model.pth'),
-        xgb_model_path=os.getenv('XGB_MODEL_PATH', 'models/xgb_model.json')
-    )
 
 
 if __name__ == '__main__':
