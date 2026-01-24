@@ -2,7 +2,7 @@ const Scan = require('../models/Scan');
 const { Client } = require("@gradio/client");
 const { File } = require('node:buffer'); 
 
-// Dynamic import for node-fetch to handle image downloading
+// Dynamic import for node-fetch
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // =========================================================
@@ -17,9 +17,8 @@ const analyzeWithPetModel = async (imageFile) => {
       image: imageFile, 
     });
 
-    console.log("✅ Pet Classifier Response:", result.data);
+    // console.log("✅ Pet Classifier Response:", result.data);
 
-    // Parse the specific string format returned by this model
     const textOutput = result.data?.[1]; 
     if (!textOutput || typeof textOutput !== 'string') return [];
 
@@ -32,7 +31,7 @@ const analyzeWithPetModel = async (imageFile) => {
             const material = match[1];
             const conf = parseFloat(match[2]) / 100;
             const trans = parseFloat(match[3]) / 100;
-            const isClear = trans > 0.5; // Threshold for transparency
+            const isClear = trans > 0.5; 
 
             detections.push({
                 source: "PetClassifier",
@@ -114,14 +113,13 @@ const analyzeWithSAM3 = async (imageFile) => {
 };
 
 // =========================================================
-// 4. HW YOLO (Arnavtr1/hw_yolo) - NEW INTEGRATION
+// 4. HW YOLO (Arnavtr1/hw_yolo)
 // =========================================================
 const analyzeWithHWYolo = async (imageFile) => {
   try {
     console.log("🔹 Connecting to Arnavtr1/hw_yolo...");
     const client = await Client.connect("Arnavtr1/hw_yolo");
 
-    // Using parameters from your Python snippet
     const result = await client.predict("/inference", { 
         image: imageFile,
         aruco_size_val: 3,
@@ -133,19 +131,18 @@ const analyzeWithHWYolo = async (imageFile) => {
         dist_val: 3,
     });
 
-    console.log("✅ HW YOLO Response:", result.data);
-
-    // Gradio usually returns [json_data, image_path] or similar for detection.
-    // We attempt to parse the first element if it's JSON/String data.
+    // Attempt to parse JSON output if string, or use as is
     let parsedData = result.data;
-    
-    // Attempt to normalize the output structure
+    try {
+        if (typeof result.data === 'string') parsedData = JSON.parse(result.data);
+    } catch(e) {}
+
     return [{
         source: "HW_Yolo",
         label: "bottle_yolo",
         brand: "Unknown",
         material: "PET",
-        confidence: 0.9, // Default if model doesn't return explicit confidence per item
+        confidence: 0.9,
         color: "Unknown",
         boundingBox: [],
         meta: { 
@@ -156,6 +153,52 @@ const analyzeWithHWYolo = async (imageFile) => {
 
   } catch (error) {
     console.error("❌ HW YOLO Failed:", error.message);
+    return [];
+  }
+};
+
+// =========================================================
+// 5. BOTTLE SIZE MODEL (immortal-tree/plastic_bottle_size) - NEW
+// =========================================================
+const analyzeWithBottleSize = async (imageFile) => {
+  try {
+    console.log("🔹 Connecting to immortal-tree/plastic_bottle_size...");
+    const client = await Client.connect("immortal-tree/plastic_bottle_size");
+    
+    const result = await client.predict("/predict", { 
+      image: imageFile, 
+    });
+
+    console.log("✅ Bottle Size Response:", result.data);
+
+    // Parse the output. Gradio classification often returns a Label object 
+    // or a string inside the data array.
+    const rawData = result.data;
+    let sizeLabel = "Unknown Size";
+    let conf = 0.85; // Default confidence
+
+    // Attempt to find a label string in the response
+    if (Array.isArray(rawData) && rawData.length > 0) {
+        if (rawData[0]?.label) sizeLabel = rawData[0].label; // standard Label format
+        else if (typeof rawData[0] === 'string') sizeLabel = rawData[0]; // simple string format
+    }
+
+    return [{
+        source: "ImmortalTree_Size",
+        label: "bottle",
+        brand: "Unknown",
+        material: "PET",
+        confidence: conf,
+        color: "Unknown",
+        boundingBox: [], 
+        meta: {
+            detected_size: sizeLabel,
+            raw_output: rawData
+        }
+    }];
+
+  } catch (error) {
+    console.error("❌ Bottle Size Model Failed:", error.message);
     return [];
   }
 };
@@ -178,12 +221,13 @@ exports.uploadScan = async (req, res) => {
     // Create File object for Gradio Clients
     const imageFile = new File([arrayBuffer], "scan.jpg", { type: "image/jpeg" });
 
-    // 2. Run ALL 4 Models in Parallel
-    const [petResults, aggloResults, sam3Results, yoloResults] = await Promise.all([
-        analyzeWithPetModel(imageFile),   // Model 1
-        analyzeWithAgglo(imageFile),      // Model 2
-        analyzeWithSAM3(imageFile),       // Model 3
-        analyzeWithHWYolo(imageFile)      // Model 4 (New)
+    // 2. Run ALL 5 Models in Parallel
+    const [petResults, aggloResults, sam3Results, yoloResults, sizeResults] = await Promise.all([
+        analyzeWithPetModel(imageFile),   // 1. Pet Classifier
+        analyzeWithAgglo(imageFile),      // 2. Brand Detection
+        analyzeWithSAM3(imageFile),       // 3. Segmentation
+        analyzeWithHWYolo(imageFile),     // 4. Hardware YOLO
+        analyzeWithBottleSize(imageFile)  // 5. Size Detection (NEW)
     ]);
 
     // 3. Merge Results
@@ -191,40 +235,42 @@ exports.uploadScan = async (req, res) => {
         ...petResults, 
         ...aggloResults, 
         ...sam3Results, 
-        ...yoloResults
+        ...yoloResults,
+        ...sizeResults
     ];
 
-    // 4. Calculate Stats (Prioritize max detection count)
+    // 4. Calculate Stats (Max count from detection models)
     const bottleCount = Math.max(
         sam3Results.length, 
         petResults.length, 
         aggloResults.length,
-        yoloResults.length
+        yoloResults.length,
+        sizeResults.length
     );
     
     // 5. Value Calculation
     let estimatedValue = 0;
     
+    // If we have detailed PET info, use it for base price
     if (petResults.length > 0) {
-        // Detailed calculation based on material/color if available
         petResults.forEach(b => {
             if (b.material === 'PET') {
                 estimatedValue += (b.color === 'Clear' ? 6.0 : 4.0);
             } else {
-                estimatedValue += 0.5; // Scrap value
+                estimatedValue += 0.5; // Scrap
             }
         });
         
-        // Add generic value for bottles detected by other models but not the Pet Classifier
+        // Add generic value for extra bottles detected by other models
         if (bottleCount > petResults.length) {
              estimatedValue += (bottleCount - petResults.length) * 5.0;
         }
     } else {
-        // Fallback generic calculation if Pet Classifier fails
+        // Fallback: 5.0 per bottle detected
         estimatedValue = bottleCount * 5.0; 
     }
 
-    // 6. Save to Database
+    // 6. Save
     const newScan = new Scan({
       imageUrl,
       batchId: "batch_" + Date.now(),
