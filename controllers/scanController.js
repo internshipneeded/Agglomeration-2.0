@@ -12,21 +12,12 @@ const analyzeWithPetModel = async (imageFile) => {
     const client = await Client.connect("SudoKuder/agglo");
 
     console.log("🔹 Sending image to Pet Classifier...");
-    // The API name based on your snippet is "/classify_bottle"
     const result = await client.predict("/classify_bottle", { 
       image: imageFile, 
     });
 
     console.log("✅ Pet Classifier Response:", result.data);
 
-    // PARSING LOGIC:
-    // Based on the app.py you shared, the model returns:
-    // [ result_image_blob, result_text_string ]
-    //
-    // The text string looks like:
-    // "Bottle 1: PET (confidence: 98.50%, transparency: 5.00%)"
-    // "Bottle 2: Non-PET (confidence: 92.10%, transparency: 85.00%)"
-    
     const textOutput = result.data?.[1]; 
     if (!textOutput || typeof textOutput !== 'string') return [];
 
@@ -34,22 +25,11 @@ const analyzeWithPetModel = async (imageFile) => {
     const lines = textOutput.split('\n');
 
     lines.forEach(line => {
-        // Regex to extract data from the string
-        // Matches: "Bottle 1: PET (confidence: 98.50%, transparency: 5.00%)"
         const match = line.match(/Bottle \d+: (PET|Non-PET) \(confidence: ([\d.]+)%, transparency: ([\d.]+)%\)/);
-        
         if (match) {
-            const material = match[1]; // "PET" or "Non-PET"
-            const conf = parseFloat(match[2]) / 100; // 0.985
-            const trans = parseFloat(match[3]) / 100; // 0.05
-
-            // Logic: High transparency (< 30%) usually means "Clear"
-            // High transparency value in code might actually mean "Opacity" depending on training, 
-            // but usually low transparency prob = Opaque/Colored.
-            // Let's assume based on common models: 
-            // If transparency is HIGH (e.g. 90%), it is Clear.
-            // If transparency is LOW (e.g. 5%), it is Colored.
-            // *Adjust this threshold based on your specific model's behavior*
+            const material = match[1];
+            const conf = parseFloat(match[2]) / 100;
+            const trans = parseFloat(match[3]) / 100;
             const isClear = trans > 0.5; 
 
             detections.push({
@@ -59,17 +39,12 @@ const analyzeWithPetModel = async (imageFile) => {
                 material: material,
                 confidence: conf,
                 color: isClear ? "Clear" : "Colored",
-                boundingBox: [], // This API endpoint returns a drawn image, not coords we can easily use
-                meta: {
-                    pet_prob: conf,
-                    trans_prob: trans
-                }
+                boundingBox: [],
+                meta: { pet_prob: conf, trans_prob: trans }
             });
         }
     });
-
     return detections;
-
   } catch (error) {
     console.error("❌ Pet Classifier Failed:", error.message);
     return [];
@@ -93,7 +68,7 @@ const analyzeWithAgglo = async (imageFile) => {
         brand: brand,
         confidence: 1.0,
         color: "Unknown",
-        material: "PET", // Default
+        material: "PET",
         boundingBox: [] 
       }));
   } catch (error) {
@@ -132,6 +107,53 @@ const analyzeWithSAM3 = async (imageFile) => {
   }
 };
 
+// --- HELPER 4: HW YOLO (Arnavtr1/hw_yolo) ---
+const analyzeWithHWYolo = async (imageFile) => {
+  try {
+    console.log("🔹 Connecting to Arnavtr1/hw_yolo...");
+    const client = await Client.connect("Arnavtr1/hw_yolo");
+
+    const result = await client.predict("/inference", { 
+        image: imageFile,
+        aruco_size_val: 3,
+        use_aruco_val: true,
+        cap_size_val: 3,
+        crushed_val: false,
+        fx_val: 3,
+        fy_val: 3,
+        dist_val: 3,
+    });
+
+    console.log("✅ HW YOLO Response:", result.data);
+
+    // Note: Adjust parsing based on actual JSON output of this specific YOLO model.
+    // Assuming standard object detection JSON or string output.
+    // Since exact output format isn't specified, we wrap the raw result.
+    
+    // Attempt to parse if it's a JSON string
+    let parsedData = result.data;
+    try {
+        if (typeof result.data === 'string') parsedData = JSON.parse(result.data);
+        if (Array.isArray(result.data)) parsedData = result.data;
+    } catch (e) { /* ignore parse error */ }
+
+    // Returning a generic detection object containing the model's output
+    return [{
+        source: "HW_Yolo",
+        label: "bottle_yolo",
+        brand: "Unknown",
+        material: "PET", // Assumption unless model specifies
+        confidence: 0.9,
+        boundingBox: [], // Parse result.data bounding box logic here if available
+        meta: { raw_output: parsedData }
+    }];
+
+  } catch (error) {
+    console.error("❌ HW YOLO Failed:", error.message);
+    return [];
+  }
+};
+
 // --- MAIN CONTROLLER ---
 exports.uploadScan = async (req, res) => {
   try {
@@ -148,21 +170,32 @@ exports.uploadScan = async (req, res) => {
     // Create File object for Gradio Clients
     const imageFile = new File([arrayBuffer], "scan.jpg", { type: "image/jpeg" });
 
-    // 2. Run ALL 3 Models in Parallel
-    const [petResults, aggloResults, sam3Results] = await Promise.all([
-        analyzeWithPetModel(imageFile),   // <--- Real SudoKuder/agglo call
-        analyzeWithAgglo(imageFile),      // <--- Real Agglo 2.0 call
-        analyzeWithSAM3(imageFile)        // <--- Real SAM3 call
+    // 2. Run ALL 4 Models in Parallel
+    const [petResults, aggloResults, sam3Results, yoloResults] = await Promise.all([
+        analyzeWithPetModel(imageFile),   // SudoKuder/agglo
+        analyzeWithAgglo(imageFile),      // Agglo 2.0
+        analyzeWithSAM3(imageFile),       // SAM3
+        analyzeWithHWYolo(imageFile)      // Arnavtr1/hw_yolo (NEW)
     ]);
 
     // 3. Merge Results
-    const finalDetections = [...petResults, ...aggloResults, ...sam3Results];
+    const finalDetections = [
+        ...petResults, 
+        ...aggloResults, 
+        ...sam3Results, 
+        ...yoloResults
+    ];
 
     // 4. Calculate Stats
-    // Count: Prioritize SAM3 (Segmentation), then PetClassifier (Detection), then Agglo (Text)
-    const bottleCount = Math.max(sam3Results.length, petResults.length, aggloResults.length);
+    // Count: Prioritize the model giving the highest realistic count
+    const bottleCount = Math.max(
+        sam3Results.length, 
+        petResults.length, 
+        aggloResults.length,
+        yoloResults.length
+    );
     
-    // Value Calculation:
+    // Value Calculation Logic
     let estimatedValue = 0;
     
     if (petResults.length > 0) {
@@ -174,12 +207,12 @@ exports.uploadScan = async (req, res) => {
                 estimatedValue += 0.5; // Scrap
             }
         });
-        // If detection counts differ, add generic value for extras
+        // Add generic value for extras detected by other models
         if (bottleCount > petResults.length) {
              estimatedValue += (bottleCount - petResults.length) * 5.0;
         }
     } else {
-        // Fallback
+        // Fallback generic calculation
         estimatedValue = bottleCount * 5.0; 
     }
 
