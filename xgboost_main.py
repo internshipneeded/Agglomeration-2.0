@@ -51,6 +51,7 @@ class PredictionResponse(BaseModel):
     success: bool
     message: str
     bottles: List[BottleDetection]
+    number_of_bottles:int = 1
 
 
 class ErrorResponse(BaseModel):
@@ -84,9 +85,13 @@ def initialize_models(cnn_model_path='models/cnn_model.pth', xgb_model_path='mod
     
     # Load XGBoost model
     if os.path.exists(xgb_model_path):
-        xgb_model = xgb.XGBClassifier()
-        xgb_model.load_model(xgb_model_path)
-        print(f"XGBoost model loaded from {xgb_model_path}")
+        try:
+            xgb_model = xgb.XGBClassifier()
+            xgb_model.load_model(xgb_model_path)
+            print(f"XGBoost model loaded from {xgb_model_path}")
+        except Exception as e:
+            print(f"Error loading XGBoost model: {e}")
+            xgb_model = None
     else:
         print(f"Warning: XGBoost model not found at {xgb_model_path}.")
         xgb_model = None
@@ -243,7 +248,8 @@ async def predict(image: UploadFile = File(...)):
         return PredictionResponse(
             success=True,
             message=f"Detected {len(results)} bottle(s)",
-            bottles=results
+            bottles=results,
+            number_of_bottles=len(results)
         )
         
     except Exception as e:
