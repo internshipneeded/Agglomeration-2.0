@@ -21,7 +21,7 @@ connectDB();
 
 // --- PUBLIC ROUTES ---
 app.use('/api/auth', authRoutes); // Login & Register are public
-
+app.use('/api/user', require('./routes/userRoutes'));
 // --- PROTECTED ROUTES (Require Token) ---
 // We add 'authMiddleware' before the controller
 app.post('/api/scan', authMiddleware, upload.single('image'), uploadScan);

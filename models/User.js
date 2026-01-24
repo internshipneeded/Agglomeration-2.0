@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true }, // Stores the HASH, not real password
+  name: { type: String, default: "" }, 
+  profilePic: { type: String, default: "" },
   createdAt: { type: Date, default: Date.now }
 });
 
