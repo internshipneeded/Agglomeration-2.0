@@ -1,8 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+
 import '../../../../services/auth_service.dart'; // Adjust path to your AuthService
-import '../../profile_setting/profile_screen.dart'; // Adjust path to ProfileScreen
+import '../../profile_setting/profile_screen.dart';
+import '../../scan/screens/scan_screen.dart'; // Adjust path to ProfileScreen
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,7 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _picker = ImagePicker();
 
   String _userName = "Recycler"; // Default name
-  String? _profilePicUrl;        // Cloudinary URL
+  String? _profilePicUrl; // Cloudinary URL
   bool _isLoadingUser = true;
 
   @override
@@ -61,26 +62,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchUserData();
   }
 
-  // 4. Camera Logic
-  Future<void> _openCamera() async {
-    try {
-      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
-
-      if (photo != null) {
-        // TODO: Send image to processing API
-        print("Image Path: ${photo.path}");
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Image captured! Processing...")),
-          );
-        }
-      }
-    } catch (e) {
-      print("Error picking image: $e");
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,22 +77,22 @@ class _HomeScreenState extends State<HomeScreen> {
               // 5. Dynamic Name with Skeleton Loader
               _isLoadingUser
                   ? Container(
-                width: 120,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              )
+                      width: 120,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    )
                   : Text(
-                "Hello, $_userName",
-                style: TextStyle(
-                  color: _textColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 24,
-                  fontFamily: 'Poppins',
-                ),
-              ),
+                      "Hello, $_userName",
+                      style: TextStyle(
+                        color: _textColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 24,
+                        fontFamily: 'Poppins',
+                      ),
+                    ),
               Text(
                 "Ready to recycle?",
                 style: TextStyle(
@@ -132,7 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: CircleAvatar(
                 backgroundColor: _lightGreenCard,
                 // Display Cloudinary Image if available
-                backgroundImage: (_profilePicUrl != null && _profilePicUrl!.isNotEmpty)
+                backgroundImage:
+                    (_profilePicUrl != null && _profilePicUrl!.isNotEmpty)
                     ? NetworkImage(_profilePicUrl!)
                     : null,
                 // Fallback to Icon if no image
@@ -185,7 +167,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
                         // Camera Button
                         ElevatedButton(
-                          onPressed: _openCamera,
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const ScanScreen(),
+                              ),
+                            );
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _accentColor,
                             foregroundColor: Colors.white,
@@ -198,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               vertical: 12,
                             ),
                           ),
-                          child: const Text("Start Camera"),
+                          child: const Text("Start Scanning"),
                         ),
                       ],
                     ),
