@@ -84,7 +84,6 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget _buildResultPage(Map<String, dynamic> data) {
     final List detections = data['detections'] ?? [];
     final String imageUrl = data['imageUrl'] ?? "";
-    final double totalValue = (data['totalValue'] as num?)?.toDouble() ?? 0.0;
 
     // --- 1. FILTER DATA BY SOURCE ---
     final List sam3Detections = detections.where((d) => d['source'] == 'SAM3').toList();
@@ -93,10 +92,24 @@ class _ResultScreenState extends State<ResultScreen> {
     final List yoloDetections = detections.where((d) => d['source'] == 'HW_Yolo').toList();
     final List sizeDetections = detections.where((d) => d['source'] == 'ImmortalTree_Size').toList();
 
-    // --- 2. CALCULATE COUNT ---
+    // --- 2. CALCULATE METRICS ---
     int displayCount = sam3Detections.isNotEmpty
         ? sam3Detections.length
         : (data['totalBottles'] as num?)?.toInt() ?? 0;
+
+    // REPLACEMENT: Calculate Purity Score instead of Price
+    int petCount = petDetections.where((d) => (d['material'] ?? '').toString().toUpperCase() == 'PET').length;
+    int totalMat = petDetections.length;
+    double purity = totalMat > 0 ? (petCount / totalMat) * 100 : 0.0;
+
+    String purityLabel = totalMat > 0 ? "${purity.toStringAsFixed(0)}%" : "N/A";
+    Color purityColor = _bgGreen;
+    if (totalMat > 0) {
+      if (purity < 50) purityColor = Colors.red;
+      else if (purity < 80) purityColor = Colors.orange;
+    } else {
+      purityColor = Colors.grey;
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -149,7 +162,7 @@ class _ResultScreenState extends State<ResultScreen> {
 
           const SizedBox(height: 24),
 
-          // B. STATS ROW
+          // B. STATS ROW (UPDATED)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
             decoration: BoxDecoration(
@@ -162,7 +175,8 @@ class _ResultScreenState extends State<ResultScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildStatItem("Total Value", "₹${totalValue.toStringAsFixed(1)}", _bgGreen),
+                // Replaced Total Value with Purity Score
+                _buildStatItem("Purity Score", purityLabel, purityColor),
                 Container(width: 1, height: 40, color: Colors.grey[200]),
                 _buildStatItem("Count", "$displayCount Items", _textColor),
                 Container(width: 1, height: 40, color: Colors.grey[200]),
@@ -194,14 +208,13 @@ class _ResultScreenState extends State<ResultScreen> {
             const SizedBox(height: 30),
           ],
 
-          // E. HARDWARE VERIFICATION (HW YOLO)
+          // E. HARDWARE VERIFICATION
           if (yoloDetections.isNotEmpty) ...[
             Text("Hardware Verification", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
             const SizedBox(height: 16),
             ...yoloDetections.map((det) => _buildYoloTile(det)).toList(),
             const SizedBox(height: 30),
           ] else if (displayCount > 0) ...[
-            // ⬇️ NEW: Fallback for YOLO
             Text("Hardware Verification", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
             const SizedBox(height: 16),
             _buildUnknownYoloTile(),
@@ -415,7 +428,6 @@ class _ResultScreenState extends State<ResultScreen> {
     );
   }
 
-  // ⬇️ NEW: YOLO FALLBACK TILE
   Widget _buildUnknownYoloTile() {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),

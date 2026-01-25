@@ -1,9 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
 
-import '../../../../services/auth_service.dart'; // Adjust path to your AuthService
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+
+import '../../../../services/auth_service.dart';
+import '../../history/models/detection.dart';
+import '../../history/models/scan.dart';
+import '../../history/screens/history_screen.dart';
 import '../../profile_setting/profile_screen.dart';
-import '../../scan/screens/scan_screen.dart'; // Adjust path to ProfileScreen
+import '../../scan/screens/scan_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,34 +20,44 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Theme Colors
+  // --- Theme Colors ---
   final Color _bgGreen = const Color(0xFF537A68);
   final Color _lightGreenCard = const Color(0xFFE8F1ED);
   final Color _accentColor = const Color(0xFFD67D76);
   final Color _textColor = const Color(0xFF2C3E36);
 
-  // 1. Services & State
+  // --- Services & State ---
   final AuthService _authService = AuthService();
-  final ImagePicker _picker = ImagePicker();
+  final _storage = const FlutterSecureStorage();
 
-  String _userName = "Recycler"; // Default name
-  String? _profilePicUrl; // Cloudinary URL
+  // User Data
+  String _userName = "Recycler";
+  String? _profilePicUrl;
   bool _isLoadingUser = true;
+
+  // Dashboard Data
+  bool _isLoadingData = true;
+  List<Scan> _recentScans = [];
+  int _statsTotalBottles = 0;
+  double _statsAvgQuality = 0.0; // % Clear PET
+  double _statsContamination = 0.0; // % Non-PET
 
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
+    _loadAllData();
   }
 
-  // 2. Fetch User Data Logic
+  Future<void> _loadAllData() async {
+    await Future.wait([_fetchUserData(), _fetchDashboardData()]);
+  }
+
+  // 1. Fetch User Profile
   Future<void> _fetchUserData() async {
     final userData = await _authService.getUserProfile();
-
     if (mounted) {
       setState(() {
         if (userData != null) {
-          // Check if name is not null/empty
           _userName = (userData['name'] != null && userData['name'].isNotEmpty)
               ? userData['name']
               : "Recycler";
@@ -51,14 +68,117 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 3. Navigation with Refresh
-  // We use 'await' so code pauses here until the user comes back from Profile
+  // 2. Fetch Scan History & Calculate Stats
+  Future<void> _fetchDashboardData() async {
+    const String baseUrl =
+        'https://pet-perplexity.onrender.com/api/scan/history';
+
+    try {
+      String? token = await _storage.read(key: 'jwt_token');
+      if (token == null) return;
+
+      final response = await http.get(
+        Uri.parse(baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        List<Scan> allScans = data.map((json) => Scan.fromJson(json)).toList();
+
+        // Calculate Stats
+        _calculateStats(allScans);
+
+        // Take top 2 recent scans
+        if (mounted) {
+          setState(() {
+            _recentScans = allScans.take(2).toList();
+            _isLoadingData = false;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching dashboard data: $e");
+      if (mounted) setState(() => _isLoadingData = false);
+    }
+  }
+
+  void _calculateStats(List<Scan> scans) {
+    int totalBottles = 0;
+    int totalItemsAnalyzed = 0;
+    int totalClearPet = 0;
+    int totalNonPet = 0;
+
+    for (var scan in scans) {
+      totalBottles += scan.totalBottles;
+
+      // Find representative detection for material/color
+      var materialDet = scan.detections.firstWhere(
+        (d) => d.source == 'PetClassifier',
+        orElse: () => Detection(
+          source: 'Unknown',
+          label: '',
+          confidence: 0,
+          brand: '',
+          color: 'Unknown',
+          material: 'Unknown',
+        ),
+      );
+
+      // Fallback
+      if (materialDet.source == 'Unknown') {
+        materialDet = scan.detections.firstWhere(
+          (d) => d.source == 'Agglo_2.0',
+          orElse: () => materialDet,
+        );
+      }
+
+      // Count Logic
+      if (materialDet.material.toUpperCase() == 'PET') {
+        totalItemsAnalyzed++;
+        if (materialDet.color.toLowerCase().contains('clear') ||
+            materialDet.color.toLowerCase().contains('transparent')) {
+          totalClearPet++;
+        }
+      } else if (materialDet.material != 'Unknown') {
+        totalItemsAnalyzed++;
+        totalNonPet++;
+      }
+    }
+
+    _statsTotalBottles = totalBottles;
+
+    // Calculate Percentages
+    if (totalItemsAnalyzed > 0) {
+      _statsAvgQuality = (totalClearPet / totalItemsAnalyzed) * 100;
+      _statsContamination = (totalNonPet / totalItemsAnalyzed) * 100;
+    } else {
+      _statsAvgQuality = 0.0;
+      _statsContamination = 0.0;
+    }
+  }
+
+  // --- SMART NAMING HELPER ---
+  String _getBatchTitle(Scan scan) {
+    if (scan.batchId == 'Unknown Batch' || scan.batchId.isEmpty) {
+      return "Scan ${DateFormat('MM/dd').format(scan.timestamp)}";
+    }
+
+    String cleanId = scan.batchId.replaceAll('batch_', '');
+    if (cleanId.length > 6) {
+      return "Batch #${cleanId.substring(cleanId.length - 6)}";
+    }
+    return "Batch #$cleanId";
+  }
+
   Future<void> _navigateToProfile() async {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ProfileScreen()),
     );
-    // Refresh data immediately upon return
     _fetchUserData();
   }
 
@@ -74,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 5. Dynamic Name with Skeleton Loader
               _isLoadingUser
                   ? Container(
                       width: 120,
@@ -107,17 +226,14 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
-            // 6. Avatar Tap Handler
             child: GestureDetector(
               onTap: _navigateToProfile,
               child: CircleAvatar(
                 backgroundColor: _lightGreenCard,
-                // Display Cloudinary Image if available
                 backgroundImage:
                     (_profilePicUrl != null && _profilePicUrl!.isNotEmpty)
                     ? NetworkImage(_profilePicUrl!)
                     : null,
-                // Fallback to Icon if no image
                 child: (_profilePicUrl == null || _profilePicUrl!.isEmpty)
                     ? Icon(Icons.person, color: _bgGreen)
                     : null,
@@ -127,162 +243,201 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
 
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Hero Section
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: _lightGreenCard,
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "New Batch Scan",
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: _textColor,
+      body: RefreshIndicator(
+        onRefresh: _loadAllData,
+        color: _bgGreen,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // --- HERO SECTION ---
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: _lightGreenCard,
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "New Batch Scan",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: _textColor,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          "Identify PET bottles, separate colors, and detect contaminants.",
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: _textColor.withOpacity(0.7),
-                            height: 1.4,
+                          const SizedBox(height: 8),
+                          Text(
+                            "Identify PET bottles, separate colors, and detect contaminants.",
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _textColor.withOpacity(0.7),
+                              height: 1.4,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Camera Button
-                        ElevatedButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const ScanScreen(),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const ScanScreen(),
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _accentColor,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _accentColor,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 12,
+                              ),
                             ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
+                            child: const Text("Start Scanning"),
                           ),
-                          child: const Text("Start Scanning"),
-                        ),
-                      ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Icon(
+                      Icons.camera_enhance_rounded,
+                      size: 80,
+                      color: _bgGreen.withOpacity(0.5),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              // --- RECENT BATCHES ---
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Recent Batches",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: _textColor,
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Icon(
-                    Icons.camera_enhance_rounded,
-                    size: 80,
-                    color: _bgGreen.withOpacity(0.5),
+                  GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const HistoryScreen(),
+                      ),
+                    ),
+                    child: Text(
+                      "See all",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _accentColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 16),
 
-            const SizedBox(height: 30),
+              _isLoadingData
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : _recentScans.isEmpty
+                  ? Container(
+                      padding: const EdgeInsets.all(20),
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: Text(
+                          "No scans yet. Start your first scan!",
+                          style: TextStyle(color: Colors.grey[500]),
+                        ),
+                      ),
+                    )
+                  : Column(
+                      children: _recentScans.map((scan) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12.0),
+                          child: _buildBatchTile(
+                            time: DateFormat('h:mm a').format(scan.timestamp),
+                            title: _getBatchTitle(scan),
+                            status: "${scan.totalBottles} Items Processed",
+                            // Removed Revenue
+                            isCompleted: true,
+                          ),
+                        );
+                      }).toList(),
+                    ),
 
-            // Recent Batches
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "Recent Batches",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: _textColor,
-                  ),
+              const SizedBox(height: 30),
+
+              // --- OVERVIEW STATS ---
+              Text(
+                "Overview",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: _textColor,
                 ),
-                Text(
-                  "See all",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: _accentColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            _buildBatchTile(
-              time: "10:30 AM",
-              title: "Batch #402",
-              status: "Processing...",
-              isCompleted: false,
-            ),
-            const SizedBox(height: 12),
-            _buildBatchTile(
-              time: "09:15 AM",
-              title: "Batch #401",
-              status: "Completed (98% PET)",
-              isCompleted: true,
-            ),
-
-            const SizedBox(height: 30),
-
-            // Quick Stats
-            Text(
-              "Overview",
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _textColor,
               ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            Row(
-              children: [
-                _buildStatCard(
-                  icon: Icons.recycling,
-                  value: "1,240",
-                  label: "Bottles",
-                  color: const Color(0xFFFBE4E4),
-                  iconColor: _accentColor,
-                ),
-                const SizedBox(width: 16),
-                _buildStatCard(
-                  icon: Icons.check_circle_outline,
-                  value: "85%",
-                  label: "Quality A",
-                  color: const Color(0xFFE8F1ED),
-                  iconColor: _bgGreen,
-                ),
-                const SizedBox(width: 16),
-                _buildStatCard(
-                  icon: Icons.scale,
-                  value: "45kg",
-                  label: "Total Wt.",
-                  color: const Color(0xFFFFF4DE),
-                  iconColor: Colors.orange,
-                ),
-              ],
-            ),
-          ],
+              Row(
+                children: [
+                  _buildStatCard(
+                    icon: Icons.recycling,
+                    value: _isLoadingData ? "-" : "$_statsTotalBottles",
+                    label: "Bottles",
+                    color: const Color(0xFFFBE4E4),
+                    iconColor: _accentColor,
+                  ),
+                  const SizedBox(width: 16),
+                  _buildStatCard(
+                    icon: Icons.check_circle_outline,
+                    value: _isLoadingData
+                        ? "-"
+                        : "${_statsAvgQuality.toStringAsFixed(0)}%",
+                    label: "Quality",
+                    color: const Color(0xFFE8F1ED),
+                    iconColor: _bgGreen,
+                  ),
+                  const SizedBox(width: 16),
+                  // New Metric: Contamination
+                  _buildStatCard(
+                    icon: Icons.warning_amber_rounded,
+                    value: _isLoadingData
+                        ? "-"
+                        : "${_statsContamination.toStringAsFixed(0)}%",
+                    label: "Contamination",
+                    color: const Color(0xFFFFF4DE),
+                    iconColor: Colors.orange,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

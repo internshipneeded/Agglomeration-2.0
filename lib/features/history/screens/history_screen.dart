@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -33,29 +34,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _fetchScans();
   }
 
-  // --- FETCH DATA FROM BACKEND ---
   Future<void> _fetchScans() async {
-    // 🔗 Ensure this matches your backend route file
-    const String baseUrl = 'https://pet-perplexity.onrender.com/api/scan/history';
+    const String baseUrl =
+        'https://pet-perplexity.onrender.com/api/scan/history';
 
     try {
-      // 1. FIX: Use 'jwt_token' to match AuthService
       String? token = await _storage.read(key: 'jwt_token');
-
       if (token == null) {
         setState(() {
-          _errorMessage = "No authentication token found. Please login.";
+          _errorMessage = "No token found.";
           _isLoading = false;
         });
         return;
       }
 
-      // 2. Send Request with Authorization Header
       final response = await http.get(
         Uri.parse(baseUrl),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token', // Standard JWT header format
+          'Authorization': 'Bearer $token',
         },
       );
 
@@ -66,12 +63,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           _isLoading = false;
         });
       } else if (response.statusCode == 401) {
-        // Token expired or invalid
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Session expired. Please login again.")),
-          );
-          // Redirect to login and remove invalid token
           await _storage.delete(key: 'jwt_token');
           Navigator.pushReplacement(
             context,
@@ -80,25 +72,51 @@ class _HistoryScreenState extends State<HistoryScreen> {
         }
       } else {
         setState(() {
-          _errorMessage = "Failed to load history (${response.statusCode})";
+          _errorMessage = "Error ${response.statusCode}";
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = "Connection error: $e";
+        _errorMessage = "Connection error";
         _isLoading = false;
       });
     }
   }
 
-  // --- REFRESH FUNCTION ---
+  // --- SMART NAMING HELPER ---
+  String _getBatchTitle(Scan scan) {
+    if (scan.batchId == 'Unknown Batch' || scan.batchId.isEmpty) {
+      return "Scan ${DateFormat('MM/dd').format(scan.timestamp)}";
+    }
+    String cleanId = scan.batchId.replaceAll('batch_', '');
+    if (cleanId.length > 6) {
+      return "Batch #${cleanId.substring(cleanId.length - 6)}";
+    }
+    return "Batch #$cleanId";
+  }
+
   Future<void> _handleRefresh() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
     await _fetchScans();
+  }
+
+  // Helper to calculate Purity for the chip
+  String _calculatePurity(Scan scan) {
+    // Only count items that were identified by PetClassifier
+    var petDetections = scan.detections
+        .where((d) => d.source == 'PetClassifier')
+        .toList();
+    if (petDetections.isEmpty) return "N/A";
+
+    int petCount = petDetections
+        .where((d) => d.material.toUpperCase() == 'PET')
+        .length;
+    double purity = (petCount / petDetections.length) * 100;
+    return "${purity.toStringAsFixed(0)}% Pure";
   }
 
   @override
@@ -121,36 +139,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
           : _scans.isEmpty
           ? _buildEmptyState()
           : RefreshIndicator(
-        onRefresh: _handleRefresh,
-        color: _bgGreen,
-        child: ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: _scans.length,
-          separatorBuilder: (c, i) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            return _buildHistoryCard(_scans[index]);
-          },
-        ),
-      ),
+              onRefresh: _handleRefresh,
+              color: _bgGreen,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: _scans.length,
+                separatorBuilder: (c, i) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  return _buildHistoryCard(_scans[index]);
+                },
+              ),
+            ),
     );
   }
 
   Widget _buildHistoryCard(Scan scan) {
-    String formattedDate = "";
-    try {
-      formattedDate = DateFormat('MMM d, yyyy • h:mm a').format(scan.timestamp);
-    } catch (e) {
-      formattedDate = "Date Unknown";
-    }
-
-    // Shorten Batch ID if it's too long
-    String displayBatchId = scan.batchId.length > 10
-        ? "Batch #${scan.batchId.substring(scan.batchId.length - 6)}"
-        : scan.batchId;
+    String formattedDate = DateFormat('MMM d, h:mm a').format(scan.timestamp);
 
     return GestureDetector(
       onTap: () {
-        // Navigate to ResultScreen with the data from this scan object
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -165,15 +172,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
+              color: Colors.grey.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Row(
           children: [
-            // 1. Image Thumbnail
             ClipRRect(
               borderRadius: BorderRadius.circular(15),
               child: Container(
@@ -183,24 +189,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: Image.network(
                   scan.imageUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      Icon(Icons.broken_image, color: _bgGreen.withOpacity(0.5)),
+                  errorBuilder: (c, e, s) => Icon(
+                    Icons.broken_image,
+                    color: _bgGreen.withOpacity(0.5),
+                  ),
                 ),
               ),
             ),
             const SizedBox(width: 16),
-
-            // 2. Info Column
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Batch ID and Date
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        displayBatchId,
+                        _getBatchTitle(scan),
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -208,14 +213,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ),
                       ),
                       Text(
-                        formattedDate, // Use formatted date here
+                        formattedDate,
                         style: TextStyle(fontSize: 12, color: Colors.grey[500]),
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-
-                  // Stats Row (Bottles & Value)
                   Row(
                     children: [
                       _buildStatChip(
@@ -224,18 +227,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         color: _bgGreen,
                       ),
                       const SizedBox(width: 8),
+                      // Replaced Price Chip with Purity Chip
                       _buildStatChip(
-                        icon: Icons.currency_rupee,
-                        label: scan.totalValue.toStringAsFixed(1),
-                        color: _accentColor,
+                        icon: Icons.water_drop,
+                        label: _calculatePurity(scan),
+                        color: Colors.blueAccent,
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-
-            // 3. Arrow
             Icon(Icons.chevron_right, color: Colors.grey[400]),
           ],
         ),
@@ -271,59 +273,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.history, size: 80, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          Text(
-            "No scans yet",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            "Start scanning to see your history here.",
-            style: TextStyle(color: Colors.grey[400]),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildEmptyState() => Center(
+    child: Text("No scans yet", style: TextStyle(color: Colors.grey[600])),
+  );
 
-  Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
-            const SizedBox(height: 16),
-            Text(
-              "Something went wrong",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _errorMessage ?? "Unknown Error",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[500]),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _handleRefresh,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _bgGreen,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text("Try Again"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildErrorState() => Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
+        ElevatedButton(onPressed: _handleRefresh, child: const Text("Retry")),
+      ],
+    ),
+  );
 }
