@@ -8,7 +8,7 @@ import 'package:intl/intl.dart';
 import '../../../../services/auth_service.dart';
 import '../../history/models/detection.dart';
 import '../../history/models/scan.dart';
-import '../../history/screens/history_screen.dart';
+import '../../history/screens/history_screen.dart'; // Ensure this file exists
 import '../../profile_setting/profile_screen.dart';
 import '../../scan/screens/scan_screen.dart';
 
@@ -26,21 +26,20 @@ class _HomeScreenState extends State<HomeScreen> {
   final Color _accentColor = const Color(0xFFD67D76);
   final Color _textColor = const Color(0xFF2C3E36);
 
-  // --- Services & State ---
+  // --- Services ---
   final AuthService _authService = AuthService();
   final _storage = const FlutterSecureStorage();
 
-  // User Data
+  // --- State ---
   String _userName = "Recycler";
   String? _profilePicUrl;
   bool _isLoadingUser = true;
-
-  // Dashboard Data
   bool _isLoadingData = true;
+
   List<Scan> _recentScans = [];
   int _statsTotalBottles = 0;
-  double _statsAvgQuality = 0.0; // % Clear PET
-  double _statsContamination = 0.0; // % Non-PET
+  double _statsAvgQuality = 0.0;
+  double _statsContamination = 0.0;
 
   @override
   void initState() {
@@ -52,13 +51,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await Future.wait([_fetchUserData(), _fetchDashboardData()]);
   }
 
-  // 1. Fetch User Profile
   Future<void> _fetchUserData() async {
     final userData = await _authService.getUserProfile();
     if (mounted) {
       setState(() {
         if (userData != null) {
-          _userName = (userData['name'] != null && userData['name'].isNotEmpty)
+          _userName = (userData['name']?.isNotEmpty ?? false)
               ? userData['name']
               : "Recycler";
           _profilePicUrl = userData['profilePic'];
@@ -68,7 +66,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 2. Fetch Scan History & Calculate Stats
   Future<void> _fetchDashboardData() async {
     const String baseUrl =
         'https://pet-perplexity.onrender.com/api/scan/history';
@@ -89,10 +86,11 @@ class _HomeScreenState extends State<HomeScreen> {
         final List<dynamic> data = json.decode(response.body);
         List<Scan> allScans = data.map((json) => Scan.fromJson(json)).toList();
 
-        // Calculate Stats
+        // Sort by date (newest first)
+        allScans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
         _calculateStats(allScans);
 
-        // Take top 2 recent scans
         if (mounted) {
           setState(() {
             _recentScans = allScans.take(2).toList();
@@ -101,22 +99,22 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      debugPrint("Error fetching dashboard data: $e");
+      debugPrint("Error fetching data: $e");
       if (mounted) setState(() => _isLoadingData = false);
     }
   }
 
   void _calculateStats(List<Scan> scans) {
     int totalBottles = 0;
-    int totalItemsAnalyzed = 0;
-    int totalClearPet = 0;
+    int totalItems = 0;
+    int totalClear = 0;
     int totalNonPet = 0;
 
     for (var scan in scans) {
       totalBottles += scan.totalBottles;
 
-      // Find representative detection for material/color
-      var materialDet = scan.detections.firstWhere(
+      // Find representative detection
+      var det = scan.detections.firstWhere(
         (d) => d.source == 'PetClassifier',
         orElse: () => Detection(
           source: 'Unknown',
@@ -127,59 +125,40 @@ class _HomeScreenState extends State<HomeScreen> {
           material: 'Unknown',
         ),
       );
-
-      // Fallback
-      if (materialDet.source == 'Unknown') {
-        materialDet = scan.detections.firstWhere(
+      if (det.source == 'Unknown') {
+        det = scan.detections.firstWhere(
           (d) => d.source == 'Agglo_2.0',
-          orElse: () => materialDet,
+          orElse: () => det,
         );
       }
 
-      // Count Logic
-      if (materialDet.material.toUpperCase() == 'PET') {
-        totalItemsAnalyzed++;
-        if (materialDet.color.toLowerCase().contains('clear') ||
-            materialDet.color.toLowerCase().contains('transparent')) {
-          totalClearPet++;
+      if (det.material.toUpperCase() == 'PET') {
+        totalItems++;
+        if (det.color.toLowerCase().contains('clear') ||
+            det.color.toLowerCase().contains('transparent')) {
+          totalClear++;
         }
-      } else if (materialDet.material != 'Unknown') {
-        totalItemsAnalyzed++;
+      } else if (det.material != 'Unknown') {
+        totalItems++;
         totalNonPet++;
       }
     }
 
     _statsTotalBottles = totalBottles;
 
-    // Calculate Percentages
-    if (totalItemsAnalyzed > 0) {
-      _statsAvgQuality = (totalClearPet / totalItemsAnalyzed) * 100;
-      _statsContamination = (totalNonPet / totalItemsAnalyzed) * 100;
-    } else {
-      _statsAvgQuality = 0.0;
-      _statsContamination = 0.0;
+    if (totalItems > 0) {
+      _statsAvgQuality = (totalClear / totalItems) * 100;
+      _statsContamination = (totalNonPet / totalItems) * 100;
     }
   }
 
-  // --- SMART NAMING HELPER ---
   String _getBatchTitle(Scan scan) {
     if (scan.batchId == 'Unknown Batch' || scan.batchId.isEmpty) {
       return "Scan ${DateFormat('MM/dd').format(scan.timestamp)}";
     }
-
-    String cleanId = scan.batchId.replaceAll('batch_', '');
-    if (cleanId.length > 6) {
-      return "Batch #${cleanId.substring(cleanId.length - 6)}";
-    }
-    return "Batch #$cleanId";
-  }
-
-  Future<void> _navigateToProfile() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ProfileScreen()),
-    );
-    _fetchUserData();
+    String clean = scan.batchId.replaceAll('batch_', '');
+    if (clean.length > 6) return "Batch #${clean.substring(clean.length - 6)}";
+    return "Batch #$clean";
   }
 
   @override
@@ -195,14 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _isLoadingUser
-                  ? Container(
-                      width: 120,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    )
+                  ? Container(width: 100, height: 20, color: Colors.grey[200])
                   : Text(
                       "Hello, $_userName",
                       style: TextStyle(
@@ -214,11 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
               Text(
                 "Ready to recycle?",
-                style: TextStyle(
-                  color: Colors.grey[500],
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: TextStyle(color: Colors.grey[500], fontSize: 14),
               ),
             ],
           ),
@@ -227,7 +195,10 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
             child: GestureDetector(
-              onTap: _navigateToProfile,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              ),
               child: CircleAvatar(
                 backgroundColor: _lightGreenCard,
                 backgroundImage:
@@ -242,7 +213,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-
       body: RefreshIndicator(
         onRefresh: _loadAllData,
         color: _bgGreen,
@@ -252,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- HERO SECTION ---
+              // --- HERO ---
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(24),
@@ -280,23 +250,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             style: TextStyle(
                               fontSize: 13,
                               color: _textColor.withOpacity(0.7),
-                              height: 1.4,
                             ),
                           ),
                           const SizedBox(height: 16),
                           ElevatedButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ScanScreen(),
-                                ),
-                              );
-                            },
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ScanScreen(),
+                              ),
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _accentColor,
                               foregroundColor: Colors.white,
-                              elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -310,7 +276,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 10),
                     Icon(
                       Icons.camera_enhance_rounded,
                       size: 80,
@@ -319,7 +284,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 30),
 
               // --- RECENT BATCHES ---
@@ -335,11 +299,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   GestureDetector(
+                    // 🔴 THIS NAVIGATES TO HISTORY LIST
                     onTap: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const HistoryScreen(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const HistoryScreen()),
                     ),
                     child: Text(
                       "See all",
@@ -362,33 +325,28 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )
                   : _recentScans.isEmpty
-                  ? Container(
-                      padding: const EdgeInsets.all(20),
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[50],
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Center(
-                        child: Text(
-                          "No scans yet. Start your first scan!",
-                          style: TextStyle(color: Colors.grey[500]),
-                        ),
+                  ? Center(
+                      child: Text(
+                        "No scans found.",
+                        style: TextStyle(color: Colors.grey[400]),
                       ),
                     )
                   : Column(
-                      children: _recentScans.map((scan) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: _buildBatchTile(
-                            time: DateFormat('h:mm a').format(scan.timestamp),
-                            title: _getBatchTitle(scan),
-                            status: "${scan.totalBottles} Items Processed",
-                            // Removed Revenue
-                            isCompleted: true,
-                          ),
-                        );
-                      }).toList(),
+                      children: _recentScans
+                          .map(
+                            (scan) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12.0),
+                              child: _buildBatchTile(
+                                time: DateFormat(
+                                  'h:mm a',
+                                ).format(scan.timestamp),
+                                title: _getBatchTitle(scan),
+                                subtitle:
+                                    "${scan.totalBottles} Items Processed",
+                              ),
+                            ),
+                          )
+                          .toList(),
                     ),
 
               const SizedBox(height: 30),
@@ -403,36 +361,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
               Row(
                 children: [
                   _buildStatCard(
-                    icon: Icons.recycling,
-                    value: _isLoadingData ? "-" : "$_statsTotalBottles",
-                    label: "Bottles",
-                    color: const Color(0xFFFBE4E4),
-                    iconColor: _accentColor,
+                    Icons.recycling,
+                    "$_statsTotalBottles",
+                    "Bottles",
+                    const Color(0xFFFBE4E4),
+                    _accentColor,
                   ),
                   const SizedBox(width: 16),
                   _buildStatCard(
-                    icon: Icons.check_circle_outline,
-                    value: _isLoadingData
-                        ? "-"
-                        : "${_statsAvgQuality.toStringAsFixed(0)}%",
-                    label: "Quality",
-                    color: const Color(0xFFE8F1ED),
-                    iconColor: _bgGreen,
+                    Icons.verified,
+                    "${_statsAvgQuality.toStringAsFixed(0)}%",
+                    "Quality",
+                    const Color(0xFFE8F1ED),
+                    _bgGreen,
                   ),
                   const SizedBox(width: 16),
-                  // New Metric: Contamination
                   _buildStatCard(
-                    icon: Icons.warning_amber_rounded,
-                    value: _isLoadingData
-                        ? "-"
-                        : "${_statsContamination.toStringAsFixed(0)}%",
-                    label: "Contamination",
-                    color: const Color(0xFFFFF4DE),
-                    iconColor: Colors.orange,
+                    Icons.warning_amber,
+                    "${_statsContamination.toStringAsFixed(0)}%",
+                    "Non-PET",
+                    const Color(0xFFFFF4DE),
+                    Colors.orange,
                   ),
                 ],
               ),
@@ -443,12 +395,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Helpers
   Widget _buildBatchTile({
     required String time,
     required String title,
-    required String status,
-    required bool isCompleted,
+    required String subtitle,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -494,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 Text(
-                  status,
+                  subtitle,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.9),
                     fontSize: 13,
@@ -503,28 +453,24 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          Icon(
-            isCompleted ? Icons.check_circle : Icons.sync,
-            color: Colors.white,
-            size: 28,
-          ),
+          const Icon(Icons.check_circle, color: Colors.white, size: 28),
         ],
       ),
     );
   }
 
-  Widget _buildStatCard({
-    required IconData icon,
-    required String value,
-    required String label,
-    required Color color,
-    required Color iconColor,
-  }) {
+  Widget _buildStatCard(
+    IconData icon,
+    String value,
+    String label,
+    Color bg,
+    Color iconColor,
+  ) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          color: color,
+          color: bg,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Column(

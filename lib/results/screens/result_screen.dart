@@ -29,8 +29,11 @@ class _ResultScreenState extends State<ResultScreen> {
       );
     }
 
-    final currentDetections = widget.results[_currentIndex]['detections'] as List? ?? [];
-    bool hasMasks = currentDetections.any((d) => d['source'] == 'SAM3' && d['maskUrl'] != null);
+    final currentDetections =
+        widget.results[_currentIndex]['detections'] as List? ?? [];
+    bool hasMasks = currentDetections.any(
+      (d) => d['source'] == 'SAM3' && d['maskUrl'] != null,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F6),
@@ -86,11 +89,23 @@ class _ResultScreenState extends State<ResultScreen> {
     final String imageUrl = data['imageUrl'] ?? "";
 
     // --- 1. FILTER DATA BY SOURCE ---
-    final List sam3Detections = detections.where((d) => d['source'] == 'SAM3').toList();
-    final List aggloDetections = detections.where((d) => d['source'] == 'Agglo_2.0').toList();
-    final List petDetections = detections.where((d) => d['source'] == 'PetClassifier' || d['source'] == 'SudoKuder').toList();
-    final List yoloDetections = detections.where((d) => d['source'] == 'HW_Yolo').toList();
-    final List sizeDetections = detections.where((d) => d['source'] == 'ImmortalTree_Size').toList();
+    final List sam3Detections = detections
+        .where((d) => d['source'] == 'SAM3')
+        .toList();
+    final List aggloDetections = detections
+        .where((d) => d['source'] == 'Agglo_2.0')
+        .toList();
+    final List petDetections = detections
+        .where(
+          (d) => d['source'] == 'PetClassifier' || d['source'] == 'SudoKuder',
+        )
+        .toList();
+    final List yoloDetections = detections
+        .where((d) => d['source'] == 'HW_Yolo')
+        .toList();
+    final List sizeDetections = detections
+        .where((d) => d['source'] == 'ImmortalTree_Size')
+        .toList();
 
     // --- 2. CALCULATE METRICS ---
     int displayCount = sam3Detections.isNotEmpty
@@ -98,15 +113,19 @@ class _ResultScreenState extends State<ResultScreen> {
         : (data['totalBottles'] as num?)?.toInt() ?? 0;
 
     // REPLACEMENT: Calculate Purity Score instead of Price
-    int petCount = petDetections.where((d) => (d['material'] ?? '').toString().toUpperCase() == 'PET').length;
+    int petCount = petDetections
+        .where((d) => (d['material'] ?? '').toString().toUpperCase() == 'PET')
+        .length;
     int totalMat = petDetections.length;
     double purity = totalMat > 0 ? (petCount / totalMat) * 100 : 0.0;
 
     String purityLabel = totalMat > 0 ? "${purity.toStringAsFixed(0)}%" : "N/A";
     Color purityColor = _bgGreen;
     if (totalMat > 0) {
-      if (purity < 50) purityColor = Colors.red;
-      else if (purity < 80) purityColor = Colors.orange;
+      if (purity < 50)
+        purityColor = Colors.red;
+      else if (purity < 80)
+        purityColor = Colors.orange;
     } else {
       purityColor = Colors.grey;
     }
@@ -124,7 +143,11 @@ class _ResultScreenState extends State<ResultScreen> {
                 color: _cardBg,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, 10)),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
                 ],
               ),
               child: ClipRRect(
@@ -137,13 +160,27 @@ class _ResultScreenState extends State<ResultScreen> {
                       fit: BoxFit.contain,
                       loadingBuilder: (context, child, loadingProgress) {
                         if (loadingProgress == null) return child;
-                        return Container(height: 300, color: Colors.grey[100], child: Center(child: CircularProgressIndicator(color: _bgGreen)));
+                        return Container(
+                          height: 300,
+                          color: Colors.grey[100],
+                          child: Center(
+                            child: CircularProgressIndicator(color: _bgGreen),
+                          ),
+                        );
                       },
-                      errorBuilder: (c, e, s) => Container(height: 300, color: Colors.grey[200], child: const Icon(Icons.broken_image, color: Colors.grey)),
+                      errorBuilder: (c, e, s) => Container(
+                        height: 300,
+                        color: Colors.grey[200],
+                        child: const Icon(
+                          Icons.broken_image,
+                          color: Colors.grey,
+                        ),
+                      ),
                     ),
                     if (_showOverlay)
                       for (var det in sam3Detections)
-                        if (det['maskUrl'] != null && det['maskUrl'].toString().isNotEmpty)
+                        if (det['maskUrl'] != null &&
+                            det['maskUrl'].toString().isNotEmpty)
                           Positioned.fill(
                             child: Opacity(
                               opacity: 0.5,
@@ -169,7 +206,11 @@ class _ResultScreenState extends State<ResultScreen> {
               color: _cardBg,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5)),
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.05),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                ),
               ],
             ),
             child: Row(
@@ -189,12 +230,26 @@ class _ResultScreenState extends State<ResultScreen> {
 
           // C. MATERIAL ANALYSIS
           if (petDetections.isNotEmpty) ...[
-            Text("Material Analysis", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Material Analysis",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
             ...petDetections.map((det) => _buildMaterialTile(det)).toList(),
             const SizedBox(height: 30),
           ] else if (displayCount > 0) ...[
-            Text("Material Analysis", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Material Analysis",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
             _buildUnknownMaterialTile(),
             const SizedBox(height: 30),
@@ -202,7 +257,14 @@ class _ResultScreenState extends State<ResultScreen> {
 
           // D. IDENTIFIED BRANDS
           if (aggloDetections.isNotEmpty) ...[
-            Text("Identified Brands", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Identified Brands",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
             ...aggloDetections.map((det) => _buildBrandTile(det)).toList(),
             const SizedBox(height: 30),
@@ -210,12 +272,26 @@ class _ResultScreenState extends State<ResultScreen> {
 
           // E. HARDWARE VERIFICATION
           if (yoloDetections.isNotEmpty) ...[
-            Text("Hardware Verification", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Hardware Verification",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
             ...yoloDetections.map((det) => _buildYoloTile(det)).toList(),
             const SizedBox(height: 30),
           ] else if (displayCount > 0) ...[
-            Text("Hardware Verification", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Hardware Verification",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
             _buildUnknownYoloTile(),
             const SizedBox(height: 30),
@@ -223,7 +299,14 @@ class _ResultScreenState extends State<ResultScreen> {
 
           // F. SIZE ESTIMATION
           if (sizeDetections.isNotEmpty) ...[
-            Text("Size Analysis", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Size Analysis",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
             ...sizeDetections.map((det) => _buildSizeTile(det)).toList(),
             const SizedBox(height: 30),
@@ -231,9 +314,18 @@ class _ResultScreenState extends State<ResultScreen> {
 
           // G. SEGMENTATION DETAILS
           if (sam3Detections.isNotEmpty) ...[
-            Text("Segmentation Masks", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _textColor)),
+            Text(
+              "Segmentation Masks",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
+            ),
             const SizedBox(height: 16),
-            ...sam3Detections.map((det) => _buildSegmentationTile(det)).toList(),
+            ...sam3Detections
+                .map((det) => _buildSegmentationTile(det))
+                .toList(),
           ],
 
           const SizedBox(height: 50),
@@ -247,9 +339,24 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget _buildStatItem(String label, String value, Color valueColor) {
     return Column(
       children: [
-        Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: valueColor, fontFamily: 'Poppins')),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: valueColor,
+            fontFamily: 'Poppins',
+          ),
+        ),
         const SizedBox(height: 6),
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500], fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[500],
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
@@ -266,25 +373,48 @@ class _ResultScreenState extends State<ResultScreen> {
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isPet ? _bgGreen.withOpacity(0.3) : Colors.red.withOpacity(0.3)),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(
+          color: isPet
+              ? _bgGreen.withOpacity(0.3)
+              : Colors.red.withOpacity(0.3),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: isPet ? _bgGreen.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+              color: isPet
+                  ? _bgGreen.withOpacity(0.1)
+                  : Colors.red.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(isPet ? Icons.recycling : Icons.do_not_disturb_alt, color: isPet ? _bgGreen : Colors.red, size: 28),
+            child: Icon(
+              isPet ? Icons.recycling : Icons.do_not_disturb_alt,
+              color: isPet ? _bgGreen : Colors.red,
+              size: 28,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(isPet ? "PET Plastic" : "Non-PET Contaminant", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _textColor)),
+                Text(
+                  isPet ? "PET Plastic" : "Non-PET Contaminant",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: _textColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -298,8 +428,17 @@ class _ResultScreenState extends State<ResultScreen> {
           ),
           Column(
             children: [
-              Text("${confidence.toInt()}%", style: TextStyle(fontWeight: FontWeight.bold, color: isPet ? _bgGreen : Colors.red)),
-              Text("Conf.", style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+              Text(
+                "${confidence.toInt()}%",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isPet ? _bgGreen : Colors.red,
+                ),
+              ),
+              Text(
+                "Conf.",
+                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+              ),
             ],
           ),
         ],
@@ -331,9 +470,19 @@ class _ResultScreenState extends State<ResultScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Material Unknown", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _textColor)),
+                Text(
+                  "Material Unknown",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: _textColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text("Detector could not confirm material type.", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                Text(
+                  "Detector could not confirm material type.",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
               ],
             ),
           ),
@@ -349,7 +498,13 @@ class _ResultScreenState extends State<ResultScreen> {
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
         border: Border.all(color: _bgGreen.withOpacity(0.1)),
       ),
       child: Row(
@@ -367,9 +522,19 @@ class _ResultScreenState extends State<ResultScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(det['brand'] ?? "Unknown Brand", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _textColor)),
+                Text(
+                  det['brand'] ?? "Unknown Brand",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: _textColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text("Verified by Agglo 2.0", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                Text(
+                  "Verified by Agglo 2.0",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
               ],
             ),
           ),
@@ -382,7 +547,8 @@ class _ResultScreenState extends State<ResultScreen> {
     final meta = det['meta'] as Map<String, dynamic>? ?? {};
     final double height = (meta['height_cm'] as num?)?.toDouble() ?? 0.0;
     final double diameter = (meta['diameter_cm'] as num?)?.toDouble() ?? 0.0;
-    final double confidence = ((det['confidence'] as num?)?.toDouble() ?? 0.0) * 100;
+    final double confidence =
+        ((det['confidence'] as num?)?.toDouble() ?? 0.0) * 100;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -390,7 +556,13 @@ class _ResultScreenState extends State<ResultScreen> {
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
         border: Border.all(color: Colors.orange.withOpacity(0.3)),
       ),
       child: Row(
@@ -408,19 +580,45 @@ class _ResultScreenState extends State<ResultScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Dimensions Detected", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _textColor)),
+                Text(
+                  "Dimensions Detected",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: _textColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 if (height > 0 || diameter > 0)
-                  Text("H: ${height.toStringAsFixed(1)} cm  |  Ø: ${diameter.toStringAsFixed(1)} cm", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[700]))
+                  Text(
+                    "H: ${height.toStringAsFixed(1)} cm  |  Ø: ${diameter.toStringAsFixed(1)} cm",
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[700],
+                    ),
+                  )
                 else
-                  Text("Measurement data unavailable", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                  Text(
+                    "Measurement data unavailable",
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  ),
               ],
             ),
           ),
           Column(
             children: [
-              Text("${confidence.toInt()}%", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-              Text("Score", style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+              Text(
+                "${confidence.toInt()}%",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange,
+                ),
+              ),
+              Text(
+                "Score",
+                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+              ),
             ],
           ),
         ],
@@ -445,16 +643,30 @@ class _ResultScreenState extends State<ResultScreen> {
               color: Colors.grey.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.warning_amber_rounded, color: Colors.grey, size: 28),
+            child: const Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.grey,
+              size: 28,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Verification Failed", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _textColor)),
+                Text(
+                  "Verification Failed",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: _textColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text("HW Yolo could not verify object dimensions.", style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                Text(
+                  "HW Yolo could not verify object dimensions.",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
               ],
             ),
           ),
@@ -466,7 +678,8 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget _buildSizeTile(Map<String, dynamic> det) {
     final meta = det['meta'] as Map<String, dynamic>? ?? {};
     String rawLabel = meta['detected_size'] ?? "Unknown";
-    final double confidence = ((det['confidence'] as num?)?.toDouble() ?? 0.0) * 100;
+    final double confidence =
+        ((det['confidence'] as num?)?.toDouble() ?? 0.0) * 100;
 
     // 1. Parsing Logic
     String displayLabel = rawLabel;
@@ -513,7 +726,13 @@ class _ResultScreenState extends State<ResultScreen> {
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
         border: Border.all(color: Colors.purple.withOpacity(0.3)),
       ),
       child: Row(
@@ -524,22 +743,42 @@ class _ResultScreenState extends State<ResultScreen> {
               color: Colors.purple.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.photo_size_select_small, color: Colors.purple, size: 24),
+            child: const Icon(
+              Icons.photo_size_select_small,
+              color: Colors.purple,
+              size: 24,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Bottle Size", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: _textColor)),
+                Text(
+                  "Bottle Size",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: _textColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 RichText(
                   text: TextSpan(
                     style: TextStyle(color: Colors.grey[800], fontSize: 14),
                     children: [
-                      TextSpan(text: displayLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      TextSpan(
+                        text: displayLabel,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                       if (category != "Custom Size")
-                        TextSpan(text: "  ($category)", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                        TextSpan(
+                          text: "  ($category)",
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 13,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -548,8 +787,17 @@ class _ResultScreenState extends State<ResultScreen> {
           ),
           Column(
             children: [
-              Text("${confidence.toInt()}%", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
-              Text("Conf.", style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+              Text(
+                "${confidence.toInt()}%",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple,
+                ),
+              ),
+              Text(
+                "Conf.",
+                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+              ),
             ],
           ),
         ],
@@ -558,7 +806,8 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Widget _buildSegmentationTile(Map<String, dynamic> det) {
-    final double confidence = ((det['confidence'] as num?)?.toDouble() ?? 0.0) * 100;
+    final double confidence =
+        ((det['confidence'] as num?)?.toDouble() ?? 0.0) * 100;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -566,7 +815,13 @@ class _ResultScreenState extends State<ResultScreen> {
       decoration: BoxDecoration(
         color: _cardBg,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -578,10 +833,14 @@ class _ResultScreenState extends State<ResultScreen> {
               color: Colors.grey[100],
               child: det['maskUrl'] != null
                   ? Image.network(
-                det['maskUrl'],
-                fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => const Icon(Icons.image_not_supported, size: 20, color: Colors.grey),
-              )
+                      det['maskUrl'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (c, e, s) => const Icon(
+                        Icons.image_not_supported,
+                        size: 20,
+                        color: Colors.grey,
+                      ),
+                    )
                   : const Icon(Icons.image_aspect_ratio, color: Colors.grey),
             ),
           ),
@@ -590,9 +849,18 @@ class _ResultScreenState extends State<ResultScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(det['label']?.toString().toUpperCase() ?? "OBJECT", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(
+                  det['label']?.toString().toUpperCase() ?? "OBJECT",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text("Confidence: ${confidence.toStringAsFixed(0)}%", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                Text(
+                  "Confidence: ${confidence.toStringAsFixed(0)}%",
+                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -602,7 +870,14 @@ class _ResultScreenState extends State<ResultScreen> {
               color: Colors.blue.withOpacity(0.08),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Text("SAM3", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w700, fontSize: 10)),
+            child: const Text(
+              "SAM3",
+              style: TextStyle(
+                color: Colors.blue,
+                fontWeight: FontWeight.w700,
+                fontSize: 10,
+              ),
+            ),
           ),
         ],
       ),
@@ -618,7 +893,11 @@ class _ResultScreenState extends State<ResultScreen> {
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isError ? Colors.red : Colors.grey[700]),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: isError ? Colors.red : Colors.grey[700],
+        ),
       ),
     );
   }
