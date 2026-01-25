@@ -6,9 +6,10 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import '../../../../services/auth_service.dart';
+import '../../../results/screens/result_screen.dart';
 import '../../history/models/detection.dart';
 import '../../history/models/scan.dart';
-import '../../history/screens/history_screen.dart'; // Ensure this file exists
+import '../../history/screens/history_screen.dart';
 import '../../profile_setting/profile_screen.dart';
 import '../../scan/screens/scan_screen.dart';
 
@@ -36,7 +37,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoadingUser = true;
   bool _isLoadingData = true;
 
-  List<Scan> _recentScans = [];
+  // Data
+  List<List<Scan>> _recentBatches = []; // List of Lists (Batches)
   int _statsTotalBottles = 0;
   double _statsAvgQuality = 0.0;
   double _statsContamination = 0.0;
@@ -86,14 +88,25 @@ class _HomeScreenState extends State<HomeScreen> {
         final List<dynamic> data = json.decode(response.body);
         List<Scan> allScans = data.map((json) => Scan.fromJson(json)).toList();
 
-        // Sort by date (newest first)
-        allScans.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
+        // 1. Calculate Global Stats (All Scans)
         _calculateStats(allScans);
+
+        // 2. Group by Batch ID
+        Map<String, List<Scan>> grouped = {};
+        for (var scan in allScans) {
+          if (!grouped.containsKey(scan.batchId)) {
+            grouped[scan.batchId] = [];
+          }
+          grouped[scan.batchId]!.add(scan);
+        }
+
+        // 3. Convert to List & Sort by Date (Newest Batch First)
+        List<List<Scan>> batches = grouped.values.toList();
+        batches.sort((a, b) => b.first.timestamp.compareTo(a.first.timestamp));
 
         if (mounted) {
           setState(() {
-            _recentScans = allScans.take(2).toList();
+            _recentBatches = batches.take(2).toList(); // Take top 2 batches
             _isLoadingData = false;
           });
         }
@@ -152,13 +165,36 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- SMART NAMING HELPER ---
   String _getBatchTitle(Scan scan) {
     if (scan.batchId == 'Unknown Batch' || scan.batchId.isEmpty) {
       return "Scan ${DateFormat('MM/dd').format(scan.timestamp)}";
     }
+    // Remove prefix if exists
     String clean = scan.batchId.replaceAll('batch_', '');
-    if (clean.length > 6) return "Batch #${clean.substring(clean.length - 6)}";
+
+    // If ID is very long (like UUID/MongoID), take last 6 chars
+    if (clean.length > 8) {
+      return "Batch #${clean.substring(clean.length - 6)}";
+    }
     return "Batch #$clean";
+  }
+
+  // --- HELPER TO CONVERT BATCH TO RESULT MAP ---
+  List<Map<String, dynamic>> _batchToResults(List<Scan> batch) {
+    // Converts a list of Scan objects into the JSON format expected by ResultScreen
+    return batch
+        .map(
+          (s) => {
+            'imageUrl': s.imageUrl,
+            'totalBottles': s.totalBottles,
+            'totalValue': s.totalValue,
+            // Kept for internal logic if needed
+            'detections': s.detections.map((d) => d.toJson()).toList(),
+            // Ensure Detection has toJson
+          },
+        )
+        .toList();
   }
 
   @override
@@ -299,7 +335,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   GestureDetector(
-                    // 🔴 THIS NAVIGATES TO HISTORY LIST
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const HistoryScreen()),
@@ -324,7 +359,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: CircularProgressIndicator(),
                       ),
                     )
-                  : _recentScans.isEmpty
+                  : _recentBatches.isEmpty
                   ? Center(
                       child: Text(
                         "No scans found.",
@@ -332,21 +367,36 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )
                   : Column(
-                      children: _recentScans
-                          .map(
-                            (scan) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12.0),
-                              child: _buildBatchTile(
-                                time: DateFormat(
-                                  'h:mm a',
-                                ).format(scan.timestamp),
-                                title: _getBatchTitle(scan),
-                                subtitle:
-                                    "${scan.totalBottles} Items Processed",
-                              ),
+                      children: _recentBatches.map((batch) {
+                        // Calculate total bottles in this batch
+                        int batchTotal = batch.fold(
+                          0,
+                          (sum, item) => sum + item.totalBottles,
+                        );
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12.0),
+                          child: GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ResultScreen(
+                                    results: _batchToResults(batch),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: _buildBatchTile(
+                              time: DateFormat(
+                                'h:mm a',
+                              ).format(batch.first.timestamp),
+                              title: _getBatchTitle(batch.first),
+                              subtitle: "$batchTotal Items Processed",
                             ),
-                          )
-                          .toList(),
+                          ),
+                        );
+                      }).toList(),
                     ),
 
               const SizedBox(height: 30),
@@ -453,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          const Icon(Icons.check_circle, color: Colors.white, size: 28),
+          const Icon(Icons.chevron_right, color: Colors.white, size: 28),
         ],
       ),
     );

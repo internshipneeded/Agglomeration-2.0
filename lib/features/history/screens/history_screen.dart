@@ -24,7 +24,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final Color _cardBg = Colors.white;
 
   final _storage = const FlutterSecureStorage();
-  List<Scan> _scans = [];
+  List<List<Scan>> _groupedBatches = []; // List of Batches
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -58,8 +58,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
+        List<Scan> allScans = data.map((json) => Scan.fromJson(json)).toList();
+
+        // --- GROUPING LOGIC ---
+        Map<String, List<Scan>> groups = {};
+        for (var scan in allScans) {
+          if (!groups.containsKey(scan.batchId)) {
+            groups[scan.batchId] = [];
+          }
+          groups[scan.batchId]!.add(scan);
+        }
+
+        List<List<Scan>> batches = groups.values.toList();
+        // Sort batches by latest date
+        batches.sort((a, b) => b.first.timestamp.compareTo(a.first.timestamp));
+
         setState(() {
-          _scans = data.map((json) => Scan.fromJson(json)).toList();
+          _groupedBatches = batches;
           _isLoading = false;
         });
       } else if (response.statusCode == 401) {
@@ -84,16 +99,48 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  // --- SMART NAMING HELPER ---
   String _getBatchTitle(Scan scan) {
     if (scan.batchId == 'Unknown Batch' || scan.batchId.isEmpty) {
       return "Scan ${DateFormat('MM/dd').format(scan.timestamp)}";
     }
-    String cleanId = scan.batchId.replaceAll('batch_', '');
-    if (cleanId.length > 6) {
-      return "Batch #${cleanId.substring(cleanId.length - 6)}";
+    String clean = scan.batchId.replaceAll('batch_', '');
+    if (clean.length > 8) return "Batch #${clean.substring(clean.length - 6)}";
+    return "Batch #$clean";
+  }
+
+  // Calculate Avg Purity for the whole batch
+  String _getBatchPurity(List<Scan> batch) {
+    int totalPet = 0;
+    int totalItems = 0;
+
+    for (var scan in batch) {
+      // Just check PetClassifier detections
+      var petDetections = scan.detections
+          .where((d) => d.source == 'PetClassifier')
+          .toList();
+      totalItems += petDetections.length;
+      totalPet += petDetections
+          .where((d) => d.material.toUpperCase() == 'PET')
+          .length;
     }
-    return "Batch #$cleanId";
+
+    if (totalItems == 0) return "N/A";
+    double purity = (totalPet / totalItems) * 100;
+    return "${purity.toStringAsFixed(0)}% Pure";
+  }
+
+  // Map Batch List to ResultScreen format
+  List<Map<String, dynamic>> _batchToResults(List<Scan> batch) {
+    return batch
+        .map(
+          (s) => {
+            'imageUrl': s.imageUrl,
+            'totalBottles': s.totalBottles,
+            'totalValue': s.totalValue,
+            'detections': s.detections.map((d) => d.toJson()).toList(),
+          },
+        )
+        .toList();
   }
 
   Future<void> _handleRefresh() async {
@@ -102,21 +149,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _errorMessage = null;
     });
     await _fetchScans();
-  }
-
-  // Helper to calculate Purity for the chip
-  String _calculatePurity(Scan scan) {
-    // Only count items that were identified by PetClassifier
-    var petDetections = scan.detections
-        .where((d) => d.source == 'PetClassifier')
-        .toList();
-    if (petDetections.isEmpty) return "N/A";
-
-    int petCount = petDetections
-        .where((d) => d.material.toUpperCase() == 'PET')
-        .length;
-    double purity = (petCount / petDetections.length) * 100;
-    return "${purity.toStringAsFixed(0)}% Pure";
   }
 
   @override
@@ -135,33 +167,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _bgGreen))
           : _errorMessage != null
-          ? _buildErrorState()
-          : _scans.isEmpty
-          ? _buildEmptyState()
+          ? Center(
+              child: Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.red),
+              ),
+            )
+          : _groupedBatches.isEmpty
+          ? Center(
+              child: Text(
+                "No scans yet",
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            )
           : RefreshIndicator(
               onRefresh: _handleRefresh,
               color: _bgGreen,
               child: ListView.separated(
                 padding: const EdgeInsets.all(16),
-                itemCount: _scans.length,
+                itemCount: _groupedBatches.length,
                 separatorBuilder: (c, i) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
-                  return _buildHistoryCard(_scans[index]);
+                  return _buildHistoryCard(_groupedBatches[index]);
                 },
               ),
             ),
     );
   }
 
-  Widget _buildHistoryCard(Scan scan) {
-    String formattedDate = DateFormat('MMM d, h:mm a').format(scan.timestamp);
+  Widget _buildHistoryCard(List<Scan> batch) {
+    // Representative scan (first in list)
+    Scan firstScan = batch.first;
+    String formattedDate = DateFormat(
+      'MMM d, h:mm a',
+    ).format(firstScan.timestamp);
+
+    // Aggregates
+    int batchTotalItems = batch.fold(0, (sum, item) => sum + item.totalBottles);
 
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ResultScreen(results: scan.toResultList()),
+            builder: (context) => ResultScreen(results: _batchToResults(batch)),
           ),
         );
       },
@@ -187,7 +236,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 height: 80,
                 color: Colors.grey[200],
                 child: Image.network(
-                  scan.imageUrl,
+                  firstScan.imageUrl, // Thumbnail of first image
                   fit: BoxFit.cover,
                   errorBuilder: (c, e, s) => Icon(
                     Icons.broken_image,
@@ -205,7 +254,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _getBatchTitle(scan),
+                        _getBatchTitle(firstScan),
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -223,14 +272,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     children: [
                       _buildStatChip(
                         icon: Icons.recycling,
-                        label: "${scan.totalBottles} Items",
+                        label: "$batchTotalItems Items",
                         color: _bgGreen,
                       ),
                       const SizedBox(width: 8),
-                      // Replaced Price Chip with Purity Chip
                       _buildStatChip(
-                        icon: Icons.water_drop,
-                        label: _calculatePurity(scan),
+                        icon: Icons.verified,
+                        label: _getBatchPurity(batch),
                         color: Colors.blueAccent,
                       ),
                     ],
@@ -272,18 +320,4 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
     );
   }
-
-  Widget _buildEmptyState() => Center(
-    child: Text("No scans yet", style: TextStyle(color: Colors.grey[600])),
-  );
-
-  Widget _buildErrorState() => Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
-        ElevatedButton(onPressed: _handleRefresh, child: const Text("Retry")),
-      ],
-    ),
-  );
 }
