@@ -4,15 +4,13 @@ from PIL import Image
 import os
 
 # --- DEPENDENCIES ---
-# Ensure these files are uploaded to the Hugging Face Space
 YOLO_PATH = "Logo_Detection_Yolov8.pt"
 SALIENCY_PATH = "ECT_SAL.pth"
 CLASSIFIER_PATH = "brand_attention_efficientnet_twostream.pth"
 
-# Define your classes here (Must match the training order!)
 CLASSES = [
     'Aquafina', 'Bisleri', 'Coca-Cola', 'Fanta', 
-    'Pepsi', 'Sprite', 'Tropicana', 'Unbranded' # Check exact spelling from your dataset folders
+    'Pepsi', 'Sprite', 'Tropicana', 'Unbranded'
 ]
 
 # Initialize Pipeline (Global)
