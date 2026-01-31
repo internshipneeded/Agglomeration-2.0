@@ -86,8 +86,9 @@ Contributions are always welcome!
 ---
 
 
-## 🤝 Development Team
+## 👥 Development Team
 
 * **Aditya** (Mobile App & UI/UX Development)
 * **Samarth Agarwal** (Backend Development)
 * **Apurva Arya**, **Arnav Tripathi**, **Suryansh Kulshreshtha** (AI & ML/DL Model Development)
+
