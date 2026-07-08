@@ -108,12 +108,12 @@ agglomeration-2.0/
 │   │   ├── app.py                  # Flask App for Size Classification
 │   │   └── README.md
 │   │
-│   ├── Agglomeration-2.0-bottlesize/ # Size Classification Model Training
-│   │   └── model.py                # EfficientNet-B2 Implementation
-│   │
-│   └── Agglomeration-2.0-ML/       # Core ML & XGBoost Logic
-│       ├── app.py                  # Gradio/Python App Interface
-│       └── xgboost_main.py         # XGBoost Logic
+├── Agglomeration-2.0-bottlesize/ # Size Classification Model Training
+│   └── model.py                # EfficientNet-B2 Implementation
+│   
+├── Agglomeration-2.0-ML/       # Core ML & XGBoost Logic
+│   ├── app.py                  # Gradio/Python App Interface
+│   └── xgboost_main.py         # XGBoost Logic
 ```
 
 ---
