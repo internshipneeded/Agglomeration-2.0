@@ -105,9 +105,9 @@ agglomeration-2.0/
 │   │   └── model_arch.py           # PyTorch Model Architecture
 │   │
 │   ├── dim_predictor/              # Dimension/Size Service
-│   │   ├── app.py                  # Flask App for Size Classification
-│   │   └── README.md
-│   │
+│       ├── app.py                  # Flask App for Size Classification
+│       └── README.md
+│   
 ├── Agglomeration-2.0-bottlesize/ # Size Classification Model Training
 │   └── model.py                # EfficientNet-B2 Implementation
 │   
