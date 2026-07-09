@@ -20,7 +20,7 @@ CORS(app)  # Enable CORS for all routes
 
 # ==================== CONFIGURATION ====================
 MODEL_PATH = "best_model.pth"
-IMAGE_SIZE = 224  # Standard for EfficientNet (usually 224 or 260 depending on training)
+IMAGE_SIZE = 260  # Matches training resolution in model.py (efficientnet_b2 @ 260x260)
 DEVICE = torch.device("cpu") # Force CPU for Render Free Tier to avoid slug size issues
 
 # ==================== LOAD MODEL ====================
