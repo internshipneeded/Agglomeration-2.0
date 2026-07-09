@@ -83,41 +83,52 @@ The system addresses the challenge of segregating plastic waste by identifying k
 The system runs on a microservices-based architecture where the Flutter app communicates with specialized ML services:
 
 1. **Detection Layer** — The input image passes through a **YOLO** model to detect the presence and location of a bottle.
-2. **Dimension Layer** — Cropped regions of interest are sent to the **Dim Predictor** (EfficientNet-B2) to estimate physical dimensions and volume.
+2. **Dimension Layer** — The **Dim Predictor** leverages **YOLOv8-seg** alongside classical computer vision calibration (ArUco marker $\rightarrow$ bottle-cap reference $\rightarrow$ camera geometry) to compute physical dimensions and real-world volume.
 3. **Brand Layer** — The **Brand Predictor** analyzes visual features to classify the bottle's brand, aiding source separation.
-4. **Analysis Layer** — The **XGBoost** model aggregates these features to make a final segregation decision.
+4. **Analysis Layer** — The **XGBoost** model aggregates these features to make a final polymer segregation decision.
+
+> ⚠️ **Important Note on Model Weights:** The `brand_predictor` service requires external weight files (the saliency model and a two-stream EfficientNet classifier) that are not tracked in this repository due to file size limits. These weights are hosted separately and injected directly into the live production spaces.
 
 ## 📂 Project Structure
 
 ```bash
 agglomeration-2.0/
-├── internshipneeded/
-│   ├── agglomeration-2.0-33bf.../  # Main Flutter Application
-│   │   ├── lib/
-│   │   │   ├── features/           # UI Screens (Home, Scan, History)
-│   │   │   ├── services/           # API Integration (Auth, ScanService)
-│   │   │   └── main.dart           # App Entry Point
-│   │   └── pubspec.yaml            # Dart Dependencies
-│   │
-│   ├── brand_predictor/            # Brand Recognition Service
-│   │   ├── app.py                  # API Entry Point
-│   │   ├── pipeline.py             # Inference Pipeline
-│   │   └── model_arch.py           # PyTorch Model Architecture
-│   │
-│   ├── dim_predictor/              # Dimension/Size Service
-│       ├── app.py                  # Flask App for Size Classification
-│       └── README.md
+├── agglomeration-2.0-flutter/    # Main Flutter Mobile Application
+│   ├── lib/
+│   │   ├── features/             # UI Screens (Home, Scan, History)
+│   │   └── services/             # API Integration (Auth, ScanService)
+│   └── pubspec.yaml              # Dart Dependencies
+│
+├── brand_predictor/              # Brand Recognition Service (Flask/PyTorch)
+│   ├── app.py                    # API Entry Point (Requires external weights)
+│   ├── pipeline.py               # Inference Pipeline
+│   └── model_arch.py             # PyTorch Model Architecture
+│
+├── dim_predictor/                # Dimension & Size Calibration Service
+│   ├── app.py                    # Flask App (YOLOv8-seg + Camera Geometry)
+│   └── README.md
 │   
-├── Agglomeration-2.0-bottlesize/ # Size Classification Model Training
-│   └── model.py                # EfficientNet-B2 Implementation
+├── Agglomeration-2.0-bottlesize/ # Training Module (EfficientNet-B2 benchmarks)
+│   └── model.py                  
 │   
-├── Agglomeration-2.0-ML/       # Core ML & XGBoost Logic
-│   ├── app.py                  # Gradio/Python App Interface
-│   └── xgboost_main.py         # XGBoost Logic
+└── Agglomeration-2.0-ML/         # Core Tabular ML Service
+    ├── app.py                    # Gradio Deployment Interface
+    └── xgboost_main.py           # XGBoost Segregation Logic
 ```
-
+---
 ---
 
+
+## 🌿 Branches & Deployed Spaces
+
+To maintain a clean microservice footprint, different components are isolated across dedicated branches. You can access the live, sandboxed environments below:
+
+| Branch Name | Component Focus | Live Deployment Link |
+| :--- | :--- | :--- |
+| `main` / `flutter-app` | Cross-platform Mobile Client | [Deploy on Render / Web Preview](#) |
+| `brand-predictor` | PyTorch Brand Logo Classifier | [Hugging Face Space](https://huggingface.co/spaces/) |
+| `dim-predictor` | YOLOv8 Geometry Estimation | [Hugging Face Space](https://huggingface.co/spaces/) |
+| `ml-xgboost` | Tabular Polymer Analysis | [Gradio on Hugging Face](https://huggingface.co/spaces/SudoKuder/agglo) |
 ## 🤝 Contributing
 
 Contributions are always welcome!
