@@ -86,10 +86,10 @@ model training code live in separate branches.
  
 | Branch | Contents | Live deployment |
 |---|---|---|
-| `main` | Flutter app (Android/iOS/Web) + `brand_predictor` + `dim_predictor` | [HF SPACE URL for brand_predictor] · [HF SPACE URL for dim_predictor] |
+| `main` | Flutter app (Android/iOS) + `brand_predictor` + `dim_predictor` | NOT CURRENTLY DEPLOYED |
 | `ML` | Integrated YOLOv5 + CNN + XGBoost pipeline | https://huggingface.co/spaces/SudoKuder/agglo |
-| `bottlesize` | EfficientNet-B2 bottle-size classifier training + Flask API | [RENDER URL, e.g. https://bottle-classifier-api.onrender.com] |
-| `backend` | Node/Express REST API (auth, scans, MongoDB, Cloudinary) | [DEPLOYMENT URL, if any] |
+| `bottlesize` | EfficientNet-B2 bottle-size classifier training + Flask API | NOT CURRENTLY DEPLOYED |
+| `backend` | Node/Express REST API (auth, scans, MongoDB, Cloudinary) | https://pet-perplexity.onrender.com |
  
 To run any service locally: `git checkout <branch>`, then follow that
 branch's own README/requirements.txt.
